@@ -327,3 +327,8 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 }
 .modal-tools { display: flex; gap: 2px; }
 .calc-open svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.form-note { color: var(--brand); font-size: 0.82rem; margin: 10px 0 0; }
+.form-note:empty { display: none; }
+.save-status { color: var(--pos); }
+.save-status::before { content: "✓ "; }
+.save-status.neg::before { content: "! "; }

@@ -3,6 +3,7 @@
   'use strict';
 
   const STORE_KEY = 'budgt:v1';
+  const DRAFT_KEY = 'budgt:draft';
   const DEFAULT_CATEGORIES = [
     ['Housing', 0], ['Groceries', 0], ['Dining', 0], ['Transport', 0],
     ['Utilities', 0], ['Health', 0], ['Entertainment', 0], ['Shopping', 0], ['Other', 0],
@@ -35,9 +36,33 @@
     return blankState();
   }
 
+  // Write state to localStorage. Returns false (and warns once) if the browser refuses.
+  let saveWarned = false, persistAsked = false;
+  function persist() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      if (localStorage.getItem(STORE_KEY) === null) throw new Error('not stored');
+    } catch (e) {
+      setSaveStatus('Not saved: this browser is blocking storage', true);
+      if (!saveWarned) { saveWarned = true; alert('Budgt couldn\'t save your changes. Your browser may be in private mode or out of storage. Use Export backup in the sidebar so you don\'t lose anything.'); }
+      return false;
+    }
+    setSaveStatus('All changes saved');
+    // Ask the browser not to clear our storage when space runs low.
+    if (!persistAsked && navigator.storage && navigator.storage.persist) { persistAsked = true; navigator.storage.persist().catch(() => {}); }
+    return true;
+  }
+
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* storage full or blocked */ }
+    persist();
     render();
+  }
+
+  function setSaveStatus(text, bad) {
+    const el = document.getElementById('saveStatus');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('neg', !!bad);
   }
 
   // ---------- helpers ----------
@@ -332,12 +357,17 @@
     }).join('');
     html += '</ul></div>';
     el.innerHTML = html;
-    el.querySelectorAll('[data-cat-budget]').forEach(inp => inp.addEventListener('change', () => {
-      const c = state.categories.find(x => x.id === inp.dataset.catBudget); const v = num(inp.value); c.budget = isFinite(v) && v > 0 ? round2(v) : 0; save();
-    }));
-    el.querySelectorAll('[data-cat-name]').forEach(inp => inp.addEventListener('change', () => {
-      const c = state.categories.find(x => x.id === inp.dataset.catName); const v = inp.value.trim(); if (v) { c.name = v; } save();
-    }));
+    // Save on every keystroke so nothing is lost on reload; re-render once the field is left.
+    el.querySelectorAll('[data-cat-budget]').forEach(inp => {
+      const apply = () => { const c = state.categories.find(x => x.id === inp.dataset.catBudget); const v = num(inp.value); c.budget = isFinite(v) && v > 0 ? round2(v) : 0; };
+      inp.addEventListener('input', () => { apply(); persist(); });
+      inp.addEventListener('change', () => { apply(); save(); });
+    });
+    el.querySelectorAll('[data-cat-name]').forEach(inp => {
+      const apply = () => { const c = state.categories.find(x => x.id === inp.dataset.catName); const v = inp.value.trim(); if (v) c.name = v; };
+      inp.addEventListener('input', () => { apply(); persist(); });
+      inp.addEventListener('change', () => { apply(); save(); });
+    });
   }
 
   function renderLiabilities() {
@@ -389,7 +419,10 @@
   const modal = $('#modal');
   let onSave = null, onDelete = null;
 
-  function openModal(title, body, saveFn, deleteFn, saveLabel) {
+  let draftDesc = null;
+  function openModal(title, body, saveFn, deleteFn, saveLabel, desc) {
+    draftDesc = desc || null;
+    $('#modalNote').textContent = '';
     $('#modalTitle').textContent = title;
     $('#modalBody').innerHTML = body;
     $('#modalError').textContent = '';
@@ -404,6 +437,50 @@
   function fail(msg) { $('#modalError').textContent = msg; return false; }
   function field(label, inner, cls) { return '<label class="field ' + (cls || '') + '"><span>' + label + '</span>' + inner + '</label>'; }
   function val(id) { const e = document.getElementById(id); return e ? e.value.trim() : ''; }
+
+  // ---------- unsaved form drafts ----------
+  // Whatever is typed into an open form is kept in localStorage, so a reload or a closed tab reopens it as it was.
+  function saveDraft() {
+    if (!draftDesc || !modal.open) return;
+    const values = {};
+    modal.querySelectorAll('#modalBody input[id], #modalBody select[id]').forEach(e => { values[e.id] = e.value; });
+    const tt = modal.querySelector('input[name=ttype]:checked');
+    const items = Array.from(modal.querySelectorAll('.item-row')).map(r => [r.querySelector('.it-name').value, r.querySelector('.it-amt').value]);
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ desc: draftDesc, values, ttype: tt ? tt.value : null, items })); } catch (e) { /* ignore */ }
+  }
+  function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ } }
+
+  function restoreDraft() {
+    let d;
+    try { d = JSON.parse(localStorage.getItem(DRAFT_KEY)); } catch (e) { d = null; }
+    if (!d || !d.desc) return;
+    const { kind, id, type } = d.desc;
+    const find = list => (id ? list.find(x => x.id === id) : null);
+    if (id && kind !== 'cat' && !find(kind === 'txn' ? state.transactions : kind === 'liab' ? state.liabilities : state.goals)) { clearDraft(); return; }
+    if (kind === 'txn') txnForm(find(state.transactions));
+    else if (kind === 'liab') liabForm(find(state.liabilities), type);
+    else if (kind === 'goal') goalForm(find(state.goals));
+    else if (kind === 'contribute') contributeForm(find(state.goals));
+    else if (kind === 'cat') catForm();
+    else { clearDraft(); return; }
+    if (d.ttype) {
+      const r = modal.querySelector('input[name=ttype][value="' + d.ttype + '"]');
+      if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    Object.keys(d.values || {}).forEach(k => { const e = document.getElementById(k); if (e && modal.contains(e)) e.value = d.values[k]; });
+    if (d.items && d.items.length && $('#itemRows')) {
+      $('#itemRows').innerHTML = d.items.map(([n, a]) => itemRow({ name: n, amount: a })).join('');
+      $('#receiptBox').open = true;
+      updateItemsSum();
+    }
+    $('#modalNote').textContent = 'Restored what you were typing before the page closed.';
+  }
+
+  modal.addEventListener('input', saveDraft);
+  modal.addEventListener('change', saveDraft);
+  modal.addEventListener('click', e => { if (e.target.closest('#addItem, [data-rm-item], #useItems')) setTimeout(saveDraft); });
+  // 'close' fires for Save, Cancel, Esc and Delete, but not when the page itself is closed or reloaded.
+  modal.addEventListener('close', () => { draftDesc = null; clearDraft(); });
 
   $('#modalForm').addEventListener('submit', e => {
     e.preventDefault();
@@ -451,7 +528,7 @@
       Object.assign(rec, { type, amount: round2(amount), date, merchant: val('f-merchant'), categoryId: type === 'income' ? 'income' : val('f-cat'), note: val('f-note'), items });
       if (isNew) state.transactions.push(rec);
       viewMonth = date.slice(0, 7);
-    }, isNew ? null : () => { state.transactions = state.transactions.filter(x => x.id !== t.id); });
+    }, isNew ? null : () => { state.transactions = state.transactions.filter(x => x.id !== t.id); }, null, { kind: 'txn', id: isNew ? null : t.id });
 
     modal.querySelectorAll('input[name=ttype]').forEach(r => r.addEventListener('change', () => {
       const inc = r.value === 'income' && r.checked;
@@ -516,7 +593,7 @@
         rec.balance = round2(bal); rec.apr = isFinite(apr) && apr > 0 ? apr : 0;
       }
       if (isNew) state.liabilities.push(rec);
-    }, isNew ? null : () => { state.liabilities = state.liabilities.filter(x => x.id !== l.id); });
+    }, isNew ? null : () => { state.liabilities = state.liabilities.filter(x => x.id !== l.id); }, null, { kind: 'liab', id: isNew ? null : l.id, type: l.type });
   }
 
   function goalForm(g) {
@@ -537,14 +614,14 @@
       const rec = isNew ? { id: uid() } : g;
       Object.assign(rec, { name, target: round2(target), saved: isFinite(saved) && saved > 0 ? round2(saved) : 0, date: d ? d + '-01' : '', monthly: isFinite(monthly) && monthly > 0 ? round2(monthly) : 0 });
       if (isNew) state.goals.push(rec);
-    }, isNew ? null : () => { state.goals = state.goals.filter(x => x.id !== g.id); });
+    }, isNew ? null : () => { state.goals = state.goals.filter(x => x.id !== g.id); }, null, { kind: 'goal', id: isNew ? null : g.id });
   }
 
   function contributeForm(g) {
     openModal('Add money to ' + g.name, field('Amount', '<input id="c-amt" inputmode="decimal" placeholder="0.00">'), () => {
       const a = num(val('c-amt')); if (!isFinite(a) || a === 0) return fail('Enter an amount.');
       g.saved = round2(Math.max(0, g.saved + a));
-    }, null, 'Add');
+    }, null, 'Add', { kind: 'contribute', id: g.id });
   }
 
   function catForm() {
@@ -552,7 +629,7 @@
       const name = val('k-name'); if (!name) return fail('Name the category.');
       const b = num(val('k-budget'));
       state.categories.push({ id: uid(), name, budget: isFinite(b) && b > 0 ? round2(b) : 0 });
-    });
+    }, null, null, { kind: 'cat' });
   }
 
   // ---------- actions ----------
@@ -664,5 +741,12 @@
     save();
   }
 
+  // Another open tab changed the data: pick it up instead of overwriting it later.
+  window.addEventListener('storage', e => {
+    if (e.key === STORE_KEY && e.newValue) { state = load(); render(); }
+  });
+
   render();
+  if (localStorage.getItem(STORE_KEY)) setSaveStatus('All changes saved');
+  restoreDraft();
 })();

@@ -3,6 +3,7 @@
   'use strict';
 
   const TAPE_KEY = 'budgt:calc-tape';
+  const EXPR_KEY = 'budgt:calc-expr';
   const $ = id => document.getElementById(id);
   const panel = $('calc'), toggle = $('calcToggle'), exprEl = $('calcExpr'), resultEl = $('calcResult');
   const tapeEl = $('calcTape'), insertBtn = $('calcInsert'), modal = $('modal');
@@ -64,6 +65,7 @@
     else { resultEl.textContent = r.value == null ? '0' : fmt.format(r.value); resultEl.dataset.last = resultEl.textContent; }
     if (r.value == null && !r.error) resultEl.dataset.last = '0';
     renderInsert();
+    try { localStorage.setItem(EXPR_KEY, exprEl.value); } catch (e) { /* ignore */ }
   }
 
   function renderTape() {
@@ -201,5 +203,6 @@
   modal.addEventListener('cancel', e => { if (!panel.hidden && panel.contains(document.activeElement)) { e.preventDefault(); close(); } });
   modal.addEventListener('close', () => { if (panel.parentNode === modal) document.body.appendChild(panel); });
 
+  try { exprEl.value = localStorage.getItem(EXPR_KEY) || ''; } catch (e) { /* ignore */ }
   renderTape(); renderResult();
 })();

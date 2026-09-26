@@ -30,6 +30,7 @@
         <button class="link-btn" id="exportBtn" type="button">Export backup</button>
         <label class="link-btn" for="importFile">Import backup</label>
         <input type="file" id="importFile" accept="application/json" hidden>
+        <p class="fine save-status" id="saveStatus">Changes save automatically</p>
         <p class="fine">Your data stays in this browser. Nothing is uploaded.</p>
       </div>
     </aside>
@@ -64,6 +65,7 @@
         </span>
       </header>
       <div id="modalBody"></div>
+      <p class="form-note" id="modalNote"></p>
       <p class="form-error" id="modalError" role="alert"></p>
       <footer class="modal-foot">
         <button type="button" class="btn btn-danger-ghost" id="modalDelete" hidden>Delete</button>

@@ -10,7 +10,7 @@ A clean, minimalist budgeting app for saving and financial security. No subscrip
 - **Bills & debt:** track recurring bills and debts (balance, APR, payment, due day). Mark a bill paid to log it, and see a payoff date for each debt.
 - **Goals:** set savings goals with an optional target date and monthly contribution, and see whether you're on track.
 
-Data is stored in your browser's localStorage and never leaves your device. Use **Export backup** / **Import backup** in the sidebar to move it between browsers.
+Data is stored in your browser's localStorage and never leaves your device. Every change saves as you type, including half-filled forms, which reopen as you left them after a reload. Open tabs stay in sync with each other. Use **Export backup** / **Import backup** in the sidebar to move data between browsers or keep a copy; clearing site data or using a private window will erase it.
 
 ## Running it
 
