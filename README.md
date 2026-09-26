@@ -1,16 +1,23 @@
 # Budgt
 
-A clean, minimalist budgeting app for saving and financial security: expenses, liabilities, itemized receipts, spending trends and savings goals. No subscription.
+A clean, minimalist budgeting app for saving and financial security. No subscription, no account, no build step.
 
-## Landing page
+## What it does
 
-The landing page is plain static HTML and CSS (`index.html`, `assets/`), so it needs no build step and works from the GitHub Pages root.
+- **Dashboard:** left to spend, spending this month vs last month, income vs spending over six months, budget by category, upcoming bills and your savings outlook.
+- **Transactions:** add expenses and income, and optionally itemize a receipt into its line items. Search covers merchants, notes and receipt items.
+- **Budget:** set a monthly limit per category and watch progress update as you spend.
+- **Bills & debt:** track recurring bills and debts (balance, APR, payment, due day). Mark a bill paid to log it, and see a payoff date for each debt.
+- **Goals:** set savings goals with an optional target date and monthly contribution, and see whether you're on track.
+
+Data is stored in your browser's localStorage and never leaves your device. Use **Export backup** / **Import backup** in the sidebar to move it between browsers.
+
+## Running it
+
+It's plain HTML, CSS and JavaScript (`index.html`, `assets/`). Open `index.html` in a browser, or run `python3 -m http.server` and visit http://localhost:8000.
 
 ### Hosting on GitHub Pages
 
 1. Go to **Settings → Pages** in this repository.
-2. Under **Build and deployment**, set **Source** to "Deploy from a branch".
-3. Pick the branch that holds `index.html` and the `/ (root)` folder, then save.
-4. After a minute the site is live at `https://keganberg.github.io/Budgt/`.
-
-To preview locally, open `index.html` in a browser, or run `python3 -m http.server` and visit http://localhost:8000.
+2. Set **Source** to "Deploy from a branch", pick the branch that holds `index.html` and the `/ (root)` folder, then save.
+3. After a minute the app is live at `https://keganberg.github.io/Budgt/`.
