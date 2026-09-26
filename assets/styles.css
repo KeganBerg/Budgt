@@ -278,3 +278,52 @@ dialog form { padding: 20px; max-height: calc(100vh - 48px); overflow-y: auto; }
   .money-input { width: 110px; }
   .item-row { grid-template-columns: 1fr 90px 32px; }
 }
+
+/* Calculator flyout */
+.calc-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.calc-toggle[aria-expanded="true"] { background: var(--brand-soft); color: var(--brand); border-color: transparent; }
+.calc {
+  position: fixed; top: 16px; right: 16px; z-index: 50; max-height: calc(100vh - 32px);
+  width: 320px; display: flex; flex-direction: column; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 16px;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.35);
+  animation: calc-in 0.18s ease-out;
+}
+@keyframes calc-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .calc { animation: none; } }
+.calc-head { display: flex; align-items: center; justify-content: space-between; }
+.calc-head h2 { margin: 0; font-size: 1rem; }
+.calc-tape { list-style: none; margin: 0; padding: 0; max-height: 220px; min-height: 24px; overflow-y: auto; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+.calc-tape li { display: flex; justify-content: space-between; gap: 12px; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.calc-tape li button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calc-tape li b { color: var(--text); font-weight: 600; cursor: pointer; }
+.calc-tape li button:hover, .calc-tape li b:hover { color: var(--brand); }
+.calc-tape .tape-empty { justify-content: center; font-style: italic; }
+.calc-display { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; text-align: right; }
+.calc-display input { border: 0; background: transparent; padding: 0; text-align: right; font-size: 1.05rem; color: var(--muted); font-variant-numeric: tabular-nums; box-shadow: none; }
+.calc-display input:focus { box-shadow: none; }
+.calc-display output { display: block; font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; min-height: 2.4rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.calc-display output.err { color: var(--neg); font-size: 1rem; font-weight: 600; padding-top: 10px; }
+.calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.calc-keys button { height: 48px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); font-size: 1.1rem; font-weight: 600; cursor: pointer; }
+.calc-keys button:hover { background: var(--surface-2); }
+.calc-keys button:active { transform: scale(0.97); }
+.calc-keys .k-fn { color: var(--muted); }
+.calc-keys .k-op { color: var(--brand); background: var(--brand-soft); border-color: transparent; }
+.calc-keys .k-eq { background: var(--brand); color: #fff; border-color: transparent; }
+@media (prefers-color-scheme: dark) { .calc-keys .k-eq { color: #042f2e; } }
+.calc-head-tools { display: flex; align-items: center; gap: 8px; }
+.calc-insert { width: 100%; justify-content: center; white-space: normal; text-align: center; line-height: 1.3; }
+.calc-insert:disabled { background: var(--surface-2); color: var(--muted); cursor: default; }
+input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+@media (min-width: 761px) { body.calc-open .main { padding-right: 368px; } }
+@media (max-width: 760px) {
+  .calc-toggle span { display: none; }
+  .calc-toggle { padding: 9px; }
+  .calc { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 82vh; border-radius: 20px 20px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); animation-name: calc-up; }
+  .calc-tape { max-height: 22vh; }
+  .calc-keys button { height: 52px; }
+  @keyframes calc-up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+.modal-tools { display: flex; gap: 2px; }
+.calc-open svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

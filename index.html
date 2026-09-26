@@ -42,6 +42,7 @@
           <span id="monthLabel"></span>
           <button type="button" class="icon-btn" id="nextMonth" aria-label="Next month">›</button>
         </div>
+        <button type="button" class="btn btn-ghost calc-toggle" id="calcToggle" aria-controls="calc" aria-expanded="false" title="Calculator"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg><span>Calculator</span></button>
         <button type="button" class="btn" id="addTxnBtn">+ Add transaction</button>
       </header>
 
@@ -57,7 +58,10 @@
     <form method="dialog" id="modalForm" novalidate>
       <header class="modal-head">
         <h2 id="modalTitle"></h2>
-        <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
+        <span class="modal-tools">
+          <button type="button" class="icon-btn calc-open" data-calc-open aria-label="Open calculator" title="Calculator"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg></button>
+          <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
+        </span>
       </header>
       <div id="modalBody"></div>
       <p class="form-error" id="modalError" role="alert"></p>
@@ -70,6 +74,45 @@
     </form>
   </dialog>
 
+  <aside class="calc" id="calc" aria-label="Calculator" hidden>
+    <header class="calc-head">
+      <h2>Calculator</h2>
+      <span class="calc-head-tools">
+        <button type="button" class="link-btn" id="calcClearTape">Clear history</button>
+        <button type="button" class="icon-btn" id="calcClose" aria-label="Close calculator">✕</button>
+      </span>
+    </header>
+    <ol class="calc-tape" id="calcTape" aria-label="History"></ol>
+    <div class="calc-display">
+      <input id="calcExpr" autocomplete="off" spellcheck="false" inputmode="none" aria-label="Expression" placeholder="0">
+      <output id="calcResult" aria-live="polite"></output>
+    </div>
+    <div class="calc-keys" id="calcKeys">
+      <button type="button" data-k="C" class="k-fn">C</button>
+      <button type="button" data-k="(" class="k-fn">(</button>
+      <button type="button" data-k=")" class="k-fn">)</button>
+      <button type="button" data-k="/" class="k-op" aria-label="Divide">÷</button>
+      <button type="button" data-k="7">7</button>
+      <button type="button" data-k="8">8</button>
+      <button type="button" data-k="9">9</button>
+      <button type="button" data-k="*" class="k-op" aria-label="Multiply">×</button>
+      <button type="button" data-k="4">4</button>
+      <button type="button" data-k="5">5</button>
+      <button type="button" data-k="6">6</button>
+      <button type="button" data-k="-" class="k-op" aria-label="Minus">−</button>
+      <button type="button" data-k="1">1</button>
+      <button type="button" data-k="2">2</button>
+      <button type="button" data-k="3">3</button>
+      <button type="button" data-k="+" class="k-op" aria-label="Plus">+</button>
+      <button type="button" data-k="0">0</button>
+      <button type="button" data-k=".">.</button>
+      <button type="button" data-k="back" class="k-fn" aria-label="Backspace">⌫</button>
+      <button type="button" data-k="=" class="k-eq">=</button>
+    </div>
+    <button type="button" class="btn calc-insert" id="calcInsert" disabled>Click a money field to insert</button>
+  </aside>
+
   <script src="assets/app.js"></script>
+  <script src="assets/calc.js"></script>
 </body>
 </html>
