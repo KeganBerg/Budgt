@@ -246,7 +246,8 @@
   const views = ['dashboard', 'transactions', 'budget', 'liabilities', 'goals'];
   const titles = { dashboard: 'Dashboard', transactions: 'Transactions', budget: 'Budget', liabilities: 'Bills & debt', goals: 'Savings goals' };
 
-  function currentView() { const v = location.hash.slice(1); return views.includes(v) ? v : 'dashboard'; }
+  function currentView() { const v = location.hash.slice(1).split('/')[0]; return views.includes(v) ? v : 'dashboard'; }
+  function subView() { return location.hash.slice(1).split('/')[1] || ''; }
 
   function render() {
     const v = currentView();
@@ -288,6 +289,7 @@
     html += statCard('Income', money(income), 'Net ' + (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' this month', income - spent >= 0 ? 'pos' : 'neg');
     html += statCard('Total debt', money(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
     html += '</div>';
+    html += strainBanner();
 
     html += '<div class="grid">';
     html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-cur">' + esc(monthName(viewMonth, { month: 'short' })) + '</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
@@ -497,7 +499,19 @@
   }
 
   function renderBudget() {
-    const el = $('#view-budget');
+    const root = $('#view-budget');
+    const sub = ['plans', 'patterns'].includes(subView()) ? subView() : '';
+    const det = detectedIncome();
+    const alerts = findPatterns().filter(p => p.level !== 'low').length;
+    root.innerHTML = '<div class="card income-card"><label class="income-field"><span>Monthly take-home income</span><span class="money-input big"><span>$</span><input inputmode="decimal" id="incomeInput" value="' + (state.income || '') + '" placeholder="' + (det ? det : '0') + '" aria-label="Monthly take-home income"></span></label>' +
+      '<p class="muted small">' + (state.income > 0 ? 'Used for budget plans and strain alerts.' + (det && Math.abs(det - state.income) > 1 ? ' Your logged income averages ' + money0(det) + '/mo.' : '') : det ? 'Not set, so Budgt is using your logged income average of ' + money0(det) + '/mo. <button type="button" class="link-btn small-link" data-act="use-income">Use ' + money0(det) + '</button>' : 'After tax. Budget plans are built from this.') + '</p></div>' +
+      '<nav class="subtabs" aria-label="Budget sections"><a href="#budget"' + (!sub ? ' class="on"' : '') + '>Categories</a><a href="#budget/plans"' + (sub === 'plans' ? ' class="on"' : '') + '>Budget plans</a><a href="#budget/patterns"' + (sub === 'patterns' ? ' class="on"' : '') + '>Patterns' + (alerts ? ' <span class="count">' + alerts + '</span>' : '') + '</a></nav><div id="budgetSub"></div>';
+    const inc = $('#incomeInput');
+    inc.addEventListener('input', () => { const v = num(inc.value); state.income = isFinite(v) && v > 0 ? round2(v) : 0; persist(); });
+    inc.addEventListener('change', () => save());
+    const el = $('#budgetSub');
+    if (sub === 'plans') return renderPlans(el);
+    if (sub === 'patterns') return renderPatterns(el);
     const spent = spentByCat(viewMonth);
     const budget = totalBudget();
     const spentTotal = sumBy(txnsIn(viewMonth), 'expense');
@@ -573,6 +587,326 @@
     }).join('') + '</ul>';
     html += '</div>';
     el.innerHTML = html;
+  }
+
+  // ---------- income, budget plans, outlook and spending patterns ----------
+  // Average income logged over recent months (skipping empty ones); used when no income is entered.
+  function detectedIncome() {
+    const cur = monthKey(new Date());
+    const vals = [];
+    for (let i = 1; i <= 6 && vals.length < 3; i++) { const v = sumBy(txnsIn(shiftMonth(cur, -i)), 'income'); if (v > 0) vals.push(v); }
+    if (!vals.length) { const v = sumBy(txnsIn(cur), 'income'); if (v > 0) vals.push(v); }
+    return vals.length ? round2(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  }
+  function monthlyIncome() { return state.income > 0 ? state.income : detectedIncome(); }
+
+  function isDebtPayment(t) { const l = t.liabilityId && state.liabilities.find(x => x.id === t.liabilityId); return !!(l && l.type === 'debt'); }
+
+  // Average monthly spend per category over the last 3 months that have data (debt payments excluded; they're counted separately).
+  function catAverages() {
+    const cur = monthKey(new Date());
+    const months = [];
+    for (let i = 1; i <= 6 && months.length < 3; i++) { const k = shiftMonth(cur, -i); if (txnsIn(k).some(t => t.type === 'expense')) months.push(k); }
+    if (!months.length) months.push(cur);
+    const sums = {};
+    months.forEach(k => txnsIn(k).forEach(t => { if (t.type === 'expense' && !isDebtPayment(t)) sums[t.categoryId] = (sums[t.categoryId] || 0) + t.amount; }));
+    const avg = {};
+    Object.keys(sums).forEach(id => { avg[id] = sums[id] / months.length; });
+    return { avg, months: months.length };
+  }
+
+  const PLANS = [
+    { id: '50-30-20', name: '50/30/20', tagline: '50% needs · 30% wants · 20% savings', needs: 0.5, wants: 0.3, save: 0.2,
+      about: 'The most widely used split. Needs (including minimum debt payments) stay under half your take-home pay, wants get 30%, and 20% goes to savings and extra debt payments.',
+      source: 'Elizabeth Warren & Amelia Warren Tyagi, All Your Worth (2005)', bestFor: 'A balanced starting point' },
+    { id: '70-20-10', name: '70/20/10', tagline: '70% living · 20% savings · 10% debt', living: 0.7, save: 0.2, debt: 0.1,
+      about: 'Everything you live on, needs and wants together, fits in 70%. 20% is saved and 10% goes to paying down debt faster (or to giving once you\'re debt-free).',
+      source: 'Common financial-planner rule of thumb', bestFor: 'Paying off debt while still saving' },
+    { id: '60-solution', name: '60% solution', tagline: '60% committed · 30% saved · 10% fun', needs: 0.6, wants: 0.1, save: 0.3,
+      about: 'Committed costs stay at 60%. The rest is split into 10% retirement, 10% long-term savings, 10% for irregular costs like gifts and car repairs, and a guilt-free 10% for fun.',
+      source: 'Richard Jenkins, MSN Money (2006)', bestFor: 'Building savings fast' },
+    { id: 'pay-first', name: 'Pay yourself first', tagline: 'Save 20% first · spend the rest freely', living: 0.8, save: 0.2,
+      about: 'Move 20% to savings the day you\'re paid, then spend what\'s left without tracking every category. The CFPB finds automatic, up-front saving is one of the most reliable ways to save.',
+      source: 'Classic "pay yourself first" rule; CFPB evidence review (2020)', bestFor: 'People who hate tracking categories' },
+    { id: 'zero-based', name: 'Zero-based', tagline: 'Every dollar gets a job', zero: true,
+      about: 'Income minus needs, minus what your goals need each month, minus wants equals zero. Wants are held to what you actually spend, and anything left over goes to savings.',
+      source: 'Popularised by Dave Ramsey and YNAB', bestFor: 'Hitting specific goals on time' },
+    { id: 'envelope', name: 'Envelope', tagline: 'Hard caps 10% below your usual spending', envelope: true,
+      about: 'Each flexible category gets a fixed "envelope" 10% smaller than what you usually spend. When it\'s empty, you stop. Everything you don\'t spend is saved.',
+      source: 'Cash-envelope system', bestFor: 'Reining in overspending' },
+  ];
+  let selectedPlan = null;
+
+  function goalsMonthlyNeed() {
+    return state.goals.reduce((a, g) => {
+      const rem = Math.max(0, g.target - g.saved);
+      if (!rem) return a;
+      if (g.monthly > 0) return a + g.monthly;
+      if (g.date) return a + rem / Math.max(1, monthsUntil(g.date));
+      return a;
+    }, 0);
+  }
+  function r5(n) { return Math.round(n / 5) * 5; }
+
+  function computePlan(plan) {
+    const I = monthlyIncome();
+    const { avg } = catAverages();
+    // Essentials are locked: their budgets are never changed. The plan sizes needs from what you actually spend on them
+    // (or the budget when there's no history yet), so padding in an essential budget doesn't shrink your wants or savings.
+    const essentials = state.categories.filter(isEssential).map(c => ({ c, amt: c.budget > 0 ? c.budget : r5(avg[c.id] || 0), avg: avg[c.id] || 0, expect: avg[c.id] > 0 ? avg[c.id] : (c.budget || 0) }));
+    const flex = state.categories.filter(c => !isEssential(c)).map(c => ({ c, avg: avg[c.id] || 0 }));
+    const debts = state.liabilities.filter(l => l.type === 'debt' && l.balance > 0);
+    const debtMin = debts.reduce((a, l) => a + (l.payment || 0), 0);
+    const N = essentials.reduce((a, e) => a + e.expect, 0) + debtMin;
+    const flexAvg = flex.reduce((a, f) => a + f.avg, 0);
+    const notes = [];
+    let W, S, X = 0;
+    if (plan.zero) {
+      const goalNeed = goalsMonthlyNeed();
+      const S0 = goalNeed > 0 ? goalNeed : I * 0.15;
+      W = Math.min(flexAvg, Math.max(0, I - N - S0));
+      S = I - N - W;
+      notes.push(goalNeed > 0 ? 'Your goals need about ' + money0(goalNeed) + '/mo, so that is set aside before wants.' : 'No dated goals yet, so 15% is set aside for savings first.');
+    } else if (plan.envelope) {
+      W = flexAvg * 0.9;
+      S = I - N - W;
+    } else if (plan.living) {
+      W = I * plan.living - N;
+      S = I * plan.save;
+      X = plan.debt ? I * plan.debt : 0;
+      if (X && !debts.length) { S += X; X = 0; notes.push('You have no debts listed, so the 10% debt share goes to savings.'); }
+    } else {
+      W = I * plan.wants;
+      S = I * plan.save;
+      const over = N - I * plan.needs;
+      if (over > 0) { W -= over; notes.push('Your essentials are ' + Math.round(N / Math.max(1, I) * 100) + '% of income, above this plan\'s ' + Math.round(plan.needs * 100) + '%. The difference comes out of wants first; essentials are not cut.'); }
+    }
+    if (W < 0) { S += W; X = Math.max(0, X + Math.min(0, S)); W = 0; }
+    // Keep wants realistic: never more than 10% above what you actually spend; the surplus is saved instead.
+    const cap = flexAvg > 0 ? flexAvg * 1.1 : W;
+    if (!plan.zero && W > cap) { S += W - cap; if (flexAvg > 0) notes.push('You spend less on wants than this plan allows, so the extra ' + money0(W - cap) + '/mo goes to savings.'); W = cap; }
+    const deficit = I - N - W - S - X < -1 ? I - N - W - S - X : 0;
+    if (S < 0) { notes.push('Your essentials and debt payments are more than your income. Budgt can\'t balance this plan without cutting essentials.'); S = 0; }
+    // Split wants across flexible categories by recent spending (evenly if there is no history).
+    const alloc = flex.map(f => {
+      const share = flexAvg > 0 ? f.avg / flexAvg : 1 / Math.max(1, flex.length);
+      return { c: f.c, avg: f.avg, planned: r5(W * share) };
+    });
+    const wantsCut = flexAvg > 0 ? 1 - W / flexAvg : 0;
+    if (wantsCut > 0.3) notes.unshift('This plan cuts your flexible spending by ' + Math.round(wantsCut * 100) + '% from what you usually spend (' + money0(flexAvg) + ' down to ' + money0(W) + ' a month). That\'s a big change, so plan for it or pick a gentler plan.');
+    return { plan, income: I, needs: N, essentials, debtMin, wants: alloc.reduce((a, x) => a + x.planned, 0), alloc, savings: Math.max(0, S), extraDebt: X, deficit, notes, wantsCut, flexAvg };
+  }
+
+  function recommendPlan() {
+    const results = PLANS.map(computePlan);
+    const ok = results.filter(r => r.savings > 0 && r.wantsCut <= 0.3 && !r.notes.some(n => /more than your income/.test(n)));
+    const pool = ok.length ? ok : results;
+    pool.sort((a, b) => (b.savings + b.extraDebt) - (a.savings + a.extraDebt));
+    return pool[0].plan.id;
+  }
+
+  // 12-month projection of savings and debt, current habits vs a plan.
+  function simulate(monthlySave, extraDebt) {
+    const debts = state.liabilities.filter(l => l.type === 'debt').map(l => ({ bal: l.balance || 0, apr: l.apr || 0, pay: l.payment || 0 }));
+    let savings = state.goals.reduce((a, g) => a + g.saved, 0);
+    const pts = [{ savings, debt: debts.reduce((a, d) => a + d.bal, 0) }];
+    for (let m = 1; m <= 12; m++) {
+      let extra = extraDebt, freed = 0;
+      debts.forEach(d => { if (d.bal <= 0) { freed += d.pay; return; } d.bal = d.bal * (1 + d.apr / 1200); const p = Math.min(d.bal, d.pay); d.bal -= p; if (d.bal <= 0.005) d.bal = 0; });
+      extra += extraDebt > 0 ? freed : 0;
+      debts.slice().sort((a, b) => b.apr - a.apr).forEach(d => { if (extra <= 0 || d.bal <= 0) return; const p = Math.min(d.bal, extra); d.bal -= p; extra -= p; });
+      savings += monthlySave + extra + (extraDebt > 0 ? 0 : freed);
+      pts.push({ savings, debt: debts.reduce((a, d) => a + d.bal, 0) });
+    }
+    return pts;
+  }
+
+  function currentMonthlySave() {
+    const { avg } = catAverages();
+    const spend = Object.values(avg).reduce((a, b) => a + b, 0);
+    const debtMin = state.liabilities.filter(l => l.type === 'debt' && l.balance > 0).reduce((a, l) => a + (l.payment || 0), 0);
+    return monthlyIncome() - spend - debtMin;
+  }
+
+  function outlookChart(r) {
+    const cur = simulate(currentMonthlySave(), 0);
+    const plan = simulate(r.savings, r.extraDebt);
+    const net = p => p.savings - p.debt;
+    const W = 600, H = 240, P = { l: 52, r: 12, t: 16, b: 26 };
+    const vals = cur.concat(plan).map(net);
+    let lo = Math.min(0, ...vals), hi = Math.max(1, ...vals);
+    const step = niceStep(hi - lo, 4);
+    lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+    const x = i => P.l + i / 12 * (W - P.l - P.r);
+    const y = v => H - P.b - (v - lo) / (hi - lo) * (H - P.t - P.b);
+    const line = pts => pts.map((p, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(net(p)).toFixed(1)).join(' ');
+    let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Projected net worth over 12 months: current habits versus ' + esc(r.plan.name) + '">';
+    for (let v = lo; v <= hi + 0.001; v += step) svg += '<line class="grid-line' + (Math.abs(v) < 0.001 ? ' zero-line' : '') + '" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (P.l - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + esc((v < 0 ? '−' : '') + compact(Math.abs(v))) + '</text>';
+    svg += '<path class="line-prev" d="' + line(cur) + '"/>';
+    svg += '<path class="line-cur" d="' + line(plan) + '"/>';
+    svg += '<circle class="line-dot" cx="' + x(12) + '" cy="' + y(net(plan[12])) + '" r="4.5"/>';
+    [0, 3, 6, 9, 12].forEach(i => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + i); svg += '<text class="axis" x="' + x(i) + '" y="' + (H - 7) + '" text-anchor="' + (i === 0 ? 'start' : i === 12 ? 'end' : 'middle') + '">' + (i === 0 ? 'Now' : esc(d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }))) + '</text>'; });
+    svg += '</svg>';
+    const diff = net(plan[12]) - net(cur[12]);
+    const debtNow = plan[0].debt, debtPlan = plan[12].debt, debtCur = cur[12].debt;
+    const facts = [
+      ['Net worth in 12 months', money0(net(plan[12])), 'Current habits: ' + money0(net(cur[12]))],
+      ['Difference', (diff >= 0 ? '+' : '−') + money0(Math.abs(diff)), diff >= 0 ? 'Better than your current path' : 'Worse than your current path'],
+    ];
+    if (debtNow > 0) facts.push(['Debt in 12 months', money0(debtPlan), 'Current habits: ' + money0(debtCur)]);
+    const goal = state.goals.find(g => g.saved < g.target);
+    if (goal) {
+      const hit = pts => { for (let i = 0; i < pts.length; i++) if (pts[i].savings - (pts[0].savings - goal.saved) >= goal.target) return i; return -1; };
+      const hp = hit(plan), hc = hit(cur);
+      facts.push([goal.name, hp >= 0 ? (hp === 0 ? 'Reached' : 'Reached ' + monthsFromNow(hp)) : 'Not within a year', hc >= 0 ? 'Current habits: ' + (hc === 0 ? 'reached' : monthsFromNow(hc)) : 'Current habits: not within a year']);
+    }
+    return '<div class="card-head"><h3>12-month outlook</h3><div class="legend"><span class="lg lg-cur">' + esc(r.plan.name) + '</span><span class="lg lg-prev">Current habits</span></div></div>' +
+      '<p class="muted small">Net worth: your savings minus what you owe, month by month, including interest on debts.</p>' + svg +
+      '<div class="outlook-facts">' + facts.map(([l, v, s]) => '<div><span>' + esc(l) + '</span><b>' + esc(v) + '</b><small>' + esc(s) + '</small></div>').join('') + '</div>';
+  }
+
+  function renderPlans(el) {
+    const I = monthlyIncome();
+    if (!(I > 0)) {
+      el.innerHTML = '<div class="card empty"><h3>Add your income first</h3><p>Budget plans are built from your monthly take-home pay. Enter it above, or log an income transaction.</p></div>';
+      return;
+    }
+    const rec = recommendPlan();
+    if (!selectedPlan || !PLANS.some(p => p.id === selectedPlan)) selectedPlan = rec;
+    const results = PLANS.map(computePlan);
+    const r = results.find(x => x.plan.id === selectedPlan);
+    const active = state.plan && state.plan.id;
+    let html = '<div class="plans-layout"><ul class="plan-list">' + results.map(x => {
+      const sel = x.plan.id === selectedPlan;
+      const saveRate = Math.round((x.savings + x.extraDebt) / I * 100);
+      return '<li><button type="button" class="plan-item' + (sel ? ' sel' : '') + '" data-act="pick-plan" data-id="' + x.plan.id + '"><span class="pi-top"><b>' + esc(x.plan.name) + '</b>' +
+        (x.plan.id === active ? '<span class="tag tag-on">Active</span>' : x.plan.id === rec ? '<span class="tag tag-rec">Best fit</span>' : '') + '</span><small>' + esc(x.plan.tagline) + '</small>' +
+        '<span class="pi-save">Saves ' + money0(x.savings + x.extraDebt) + '/mo · ' + saveRate + '%</span>' + (x.wantsCut > 0.05 ? '<span class="pi-cut' + (x.wantsCut > 0.3 ? ' neg' : '') + '">Wants −' + Math.round(x.wantsCut * 100) + '% vs usual</span>' : '') + '</button></li>';
+    }).join('') + '</ul>';
+
+    const pct = v => Math.round(v / I * 100);
+    const seg = (cls, v, label) => v > 0 ? '<i class="' + cls + '" style="width:' + Math.min(100, v / I * 100).toFixed(1) + '%" title="' + esc(label) + '"></i>' : '';
+    html += '<div class="plan-detail"><div class="card"><div class="card-head"><h3>' + esc(r.plan.name) + '</h3><span class="muted small">Best for: ' + esc(r.plan.bestFor) + '</span></div>' +
+      '<p class="plan-about">' + esc(r.plan.about) + '</p><p class="muted small">Source: ' + esc(r.plan.source) + '</p>' +
+      '<div class="split-bar">' + seg('sb-needs', r.needs, 'Needs') + seg('sb-wants', r.wants, 'Wants') + seg('sb-save', r.savings, 'Savings') + seg('sb-debt', r.extraDebt, 'Extra debt') + '</div>' +
+      '<div class="split-legend"><span><i class="sb-needs"></i>Needs ' + money0(r.needs) + ' · ' + pct(r.needs) + '%</span><span><i class="sb-wants"></i>Wants ' + money0(r.wants) + ' · ' + pct(r.wants) + '%</span><span><i class="sb-save"></i>Savings ' + money0(r.savings) + ' · ' + pct(r.savings) + '%</span>' + (r.extraDebt ? '<span><i class="sb-debt"></i>Extra debt ' + money0(r.extraDebt) + ' · ' + pct(r.extraDebt) + '%</span>' : '') + '</div>' +
+      (r.notes.length ? '<ul class="plan-notes">' + r.notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '') +
+      '<table class="plan-table"><thead><tr><th>Category</th><th>Usually spend</th><th>Plan</th></tr></thead><tbody>' +
+      r.essentials.filter(e => e.amt > 0 || e.avg > 0).map(e => '<tr class="locked"><td>' + esc(e.c.name) + ' <span class="tag">Essential · locked</span></td><td>' + money0(e.avg) + '</td><td>' + money0(e.amt) + (e.c.budget > 0 ? ' <small>budget kept</small>' : '') + '</td></tr>').join('') +
+      (r.debtMin ? '<tr class="locked"><td>Minimum debt payments <span class="tag">locked</span></td><td>' + money0(r.debtMin) + '</td><td>' + money0(r.debtMin) + '</td></tr>' : '') +
+      r.alloc.map(a => { const d = a.planned - a.avg; return '<tr><td>' + esc(a.c.name) + ' <span class="tag tag-flex">Flexible</span></td><td>' + money0(a.avg) + '</td><td>' + money0(a.planned) + (Math.abs(d) >= 5 ? ' <small class="' + (d < 0 ? 'warn' : 'pos') + '">' + (d < 0 ? '−' : '+') + money0(Math.abs(d)) + '</small>' : '') + '</td></tr>'; }).join('') +
+      '<tr class="save-row"><td>Savings</td><td>' + money0(Math.max(0, currentMonthlySave())) + '</td><td>' + money0(r.savings) + '</td></tr>' +
+      (r.extraDebt ? '<tr class="save-row"><td>Extra debt payments (highest interest first)</td><td>' + money0(0) + '</td><td>' + money0(r.extraDebt) + '</td></tr>' : '') +
+      '</tbody></table>' +
+      '<div class="row-actions plan-actions"><button type="button" class="btn" data-act="apply-plan" data-id="' + r.plan.id + '">' + (active === r.plan.id ? 'Re-apply ' : 'Use ') + esc(r.plan.name) + '</button><span class="muted small">Sets your Flexible category budgets. Essentials keep their current amounts.</span></div></div>' +
+      '<div class="card">' + outlookChart(r) + '</div></div></div>';
+    el.innerHTML = html;
+  }
+
+  function applyPlan(id) {
+    const r = computePlan(PLANS.find(p => p.id === id));
+    if (!confirm('Use the ' + r.plan.name + ' plan? This sets budgets for your ' + r.alloc.length + ' Flexible categories. Essential budgets stay as they are.')) return;
+    r.alloc.forEach(a => { a.c.budget = a.planned; });
+    r.essentials.forEach(e => { if (!(e.c.budget > 0) && e.amt > 0) e.c.budget = e.amt; });
+    state.plan = { id, appliedAt: todayISO(), savings: round2(r.savings), extraDebt: round2(r.extraDebt) };
+    save();
+  }
+
+  // ---------- spending patterns ----------
+  const STOP = new Set('the and for with from this that was were got some new day week month bought paid pay buy for, just also then into our your you are not but all one two had has have its his her him she they them per via at on in of to a an'.split(' '));
+  function words(s) { return (s || '').toLowerCase().match(/[a-z][a-z'&-]{2,}/g) || []; }
+
+  function findPatterns() {
+    const cur = monthKey(new Date());
+    const start = shiftMonth(cur, -2) + '-01';
+    const txns = state.transactions.filter(t => t.type === 'expense' && t.date >= start && !t.liabilityId && !isEssential(catById(t.categoryId)));
+    if (!txns.length) return [];
+    const monthsSpan = Math.max(1, new Set(state.transactions.filter(t => t.date >= start).map(t => t.date.slice(0, 7))).size);
+    const groups = new Map();
+    const add = (key, label, kind, t, amt) => {
+      const g = groups.get(key) || { key, label, kind, txns: new Set(), total: 0, months: new Set(), merchants: {}, dates: [] };
+      if (!g.txns.has(t.id)) { g.dates.push(t.date); }
+      g.txns.add(t.id); g.total += amt; g.months.add(t.date.slice(0, 7));
+      if (t.merchant) g.merchants[t.merchant] = (g.merchants[t.merchant] || 0) + 1;
+      groups.set(key, g);
+    };
+    txns.forEach(t => {
+      new Set(words(t.note).filter(w => !STOP.has(w))).forEach(w => add('n:' + w, w.charAt(0).toUpperCase() + w.slice(1), 'note', t, t.amount));
+      if (t.merchant) add('m:' + t.merchant.trim().toLowerCase(), t.merchant.trim(), 'merchant', t, t.amount);
+      (t.items || []).forEach(i => add('i:' + i.name.trim().toLowerCase(), i.name.trim(), 'item', t, i.amount));
+    });
+    const I = monthlyIncome();
+    const flexMonthly = txns.reduce((a, t) => a + t.amount, 0) / monthsSpan;
+    const cands = Array.from(groups.values()).filter(g => g.txns.size >= 3).map(g => {
+      const monthly = g.total / monthsSpan;
+      const share = I > 0 ? monthly / I : 0;
+      const perMonth = g.txns.size / monthsSpan;
+      // A habit is something bought at least twice a month, or a big recurring cost.
+      const habitual = perMonth >= 2 || monthly >= 100;
+      const level = !habitual ? 'low' : (I > 0 && share >= 0.05) || monthly >= 150 ? 'high' : (I > 0 && share >= 0.02) || monthly >= 60 ? 'medium' : 'low';
+      const recent = g.dates.filter(d => d.slice(0, 7) === cur).length;
+      const topMerchant = Object.keys(g.merchants).sort((a, b) => g.merchants[b] - g.merchants[a])[0];
+      return Object.assign(g, { monthly, share, level, perMonth: g.txns.size / monthsSpan, recent, topMerchant, flexShare: flexMonthly ? monthly / flexMonthly : 0 });
+    }).sort((a, b) => b.monthly - a.monthly);
+    // Keep the most expensive grouping of each set of purchases (e.g. a "vape" note over its store name).
+    const picked = [], covered = new Set();
+    cands.forEach(g => {
+      const overlap = Array.from(g.txns).filter(id => covered.has(id)).length / g.txns.size;
+      if (overlap >= 0.5) return;
+      picked.push(g); g.txns.forEach(id => covered.add(id));
+    });
+    return picked.slice(0, 8);
+  }
+
+  function patternMessage(g) {
+    const I = monthlyIncome();
+    const where = g.kind !== 'merchant' && g.topMerchant ? ' at ' + g.topMerchant : '';
+    const kindText = g.kind === 'note' ? 'from your notes' : g.kind === 'item' ? 'from receipt items' : 'by store';
+    let text = g.label + where + ' costs about ' + money0(g.monthly) + ' a month (' + Math.round(g.perMonth) + ' purchase' + (Math.round(g.perMonth) === 1 ? '' : 's') + ' a month)';
+    if (I > 0) text += ', ' + (g.share * 100).toFixed(g.share < 0.1 ? 1 : 0) + '% of your income';
+    text += '. That\'s ' + money0(g.monthly * 12) + ' a year.';
+    const goal = state.goals.find(x => x.saved < x.target);
+    const rate = avgMonthlySavings();
+    let impact = '';
+    if (goal) {
+      const rem = goal.target - goal.saved;
+      const half = g.monthly / 2;
+      if (rate > 0) {
+        const a = Math.ceil(rem / rate), b = Math.ceil(rem / (rate + half));
+        if (a - b >= 1) impact = 'Cutting it in half would reach your ' + goal.name + ' ' + (a - b) + ' month' + (a - b === 1 ? '' : 's') + ' sooner.';
+      } else impact = 'Cutting it in half would free up ' + money0(half) + ' a month toward your ' + goal.name + '.';
+    } else impact = 'Cutting it in half would free up ' + money0(g.monthly / 2) + ' a month.';
+    return { text, impact, kindText };
+  }
+
+  function renderPatterns(el) {
+    const pats = findPatterns();
+    const alerts = pats.filter(p => p.level !== 'low');
+    let html = '<div class="card"><div class="card-head"><h3>Spending patterns</h3><span class="muted small">Last 3 months · Flexible categories only</span></div>' +
+      '<p class="muted small">Budgt looks for purchases that keep coming back, by store, by words in your notes, and by receipt items, including anything filed under Other. Essential categories are never flagged.</p>';
+    if (!pats.length) html += '<p class="muted">No repeating non-essential purchases yet. Patterns show up once something repeats 3 or more times.</p>';
+    html += alerts.map(g => {
+      const m = patternMessage(g);
+      return '<div class="pattern pattern-' + g.level + '"><div class="pt-head"><b>' + esc(g.label) + '</b><span class="tag ' + (g.level === 'high' ? 'tag-high' : 'tag-flex') + '">' + (g.level === 'high' ? 'High strain' : 'Moderate strain') + '</span><span class="pt-amt">' + money0(g.monthly) + '/mo</span></div>' +
+        '<p>' + esc(m.text) + (g.level === 'high' ? ' <b>This habit is putting a lot of strain on your finances.</b>' : ' It\'s adding up.') + '</p>' +
+        '<p class="muted small">' + esc(m.impact) + ' Found ' + esc(m.kindText) + ' in ' + g.txns.size + ' purchases.</p>' +
+        '<button type="button" class="link-btn small-link" data-act="search-pattern" data-q="' + esc(g.kind === 'merchant' ? g.label : g.label.toLowerCase()) + '">See these purchases</button></div>';
+    }).join('');
+    const minor = pats.filter(p => p.level === 'low');
+    if (minor.length) html += '<h4 class="minor-head">Other repeat purchases</h4><ul class="minor-list">' + minor.map(g => '<li><span>' + esc(g.label) + (g.topMerchant && g.kind !== 'merchant' ? ' · ' + esc(g.topMerchant) : '') + '</span><span class="muted">' + g.txns.size + '× · ' + money0(g.monthly) + '/mo</span></li>').join('') + '</ul>';
+    html += '</div>';
+    el.innerHTML = html;
+  }
+
+  function strainBanner() {
+    const high = findPatterns().filter(p => p.level === 'high' || p.level === 'medium');
+    const dismissed = (state.dismissedStrain || {})[monthKey(new Date())] || [];
+    const show = high.filter(g => !dismissed.includes(g.key));
+    if (!show.length) return '';
+    const g = show[0];
+    const m = patternMessage(g);
+    return '<div class="strain-banner" role="status"><span class="sb-icon" aria-hidden="true">!</span><div><b>' + esc(g.label) + (g.level === 'high' ? ' is putting a lot of strain on your budget.' : ' is a habit that is adding up.') + '</b><p>' + esc(m.text) + (show.length > 1 ? ' ' + (show.length - 1) + ' more habit' + (show.length > 2 ? 's' : '') + ' flagged.' : '') + '</p></div>' +
+      '<div class="row-actions"><a class="btn btn-sm" href="#budget/patterns">See patterns</a><button type="button" class="btn btn-ghost btn-sm" data-act="dismiss-strain" data-id="' + esc(g.key) + '">Dismiss</button></div></div>';
   }
 
   // ---------- modal forms ----------
@@ -884,6 +1218,11 @@
       case 'edit-goal': goalForm(state.goals.find(g => g.id === id)); break;
       case 'contribute': contributeForm(state.goals.find(g => g.id === id)); break;
       case 'add-cat': catForm(); break;
+      case 'pick-plan': selectedPlan = id; render(); break;
+      case 'apply-plan': applyPlan(id); break;
+      case 'use-income': state.income = detectedIncome(); save(); break;
+      case 'search-pattern': txnFilter = { q: b.dataset.q, cat: '' }; location.hash = '#transactions'; window.scrollTo(0, 0); break;
+      case 'dismiss-strain': { const k = monthKey(new Date()); state.dismissedStrain = state.dismissedStrain || {}; (state.dismissedStrain[k] = state.dismissedStrain[k] || []).push(id); save(); break; }
       case 'view-cat': txnFilter = { q: '', cat: id }; if (location.hash === '#transactions') render(); else location.hash = '#transactions'; window.scrollTo(0, 0); break;
       case 'toggle-essential': { const c = state.categories.find(x => x.id === id); if (c) { c.essential = !isEssential(c); save(); } break; }
       case 'del-cat': {
@@ -962,6 +1301,10 @@
       add(k, 9, 'expense', 15.99, 'Netflix', 'Entertainment'); add(k, 22, 'expense', 30 + rnd() * 60, 'Movie tickets', 'Entertainment');
       add(k, 14, 'expense', 40 + rnd() * 140, 'Target', 'Shopping');
       if (rnd() > 0.5) add(k, 25, 'expense', 25 + rnd() * 60, 'CVS Pharmacy', 'Health');
+    }
+    for (let i = 2; i >= 0; i--) {
+      const k = shiftMonth(cur, -i);
+      [4, 11, 18, 25].forEach(d => { if (!(k === cur && d > today)) s.transactions.push({ id: uid(), created: 0, type: 'expense', amount: 27.99, date: k + '-' + pad(d), merchant: 'Corner Mart', categoryId: cat('Other'), note: 'Vape', items: [] }); });
     }
     add(cur, Math.min(today, 2), 'expense', 64.37, 'Target', 'Shopping', [{ name: 'Towels', amount: 24.99 }, { name: 'Laundry detergent', amount: 13.49 }, { name: 'Phone charger', amount: 19.99 }, { name: 'Tax', amount: 5.9 }]);
     s.liabilities = [
