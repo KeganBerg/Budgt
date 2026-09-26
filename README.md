@@ -1,6 +1,6 @@
 # Budgt
 
-A budget web app with a clean, custom dashboard and no subscription.
+A clean, minimalist budgeting app for saving and financial security: expenses, liabilities, itemized receipts, spending trends and savings goals. No subscription.
 
 ## Landing page
 
