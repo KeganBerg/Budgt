@@ -241,6 +241,10 @@
 
     html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
+    html += '<div class="card"><div class="card-head"><h3>Top spending</h3><a href="#transactions" class="small-link">Details</a></div>' + topSpending(viewMonth) + '</div>';
+
+    html += '<div class="card span-2"><div class="card-head"><h3>Ways to cut back</h3><a href="#budget" class="small-link">Essentials</a></div>' + cutBackTips(viewMonth) + '</div>';
+
     html += '<div class="card span-2"><div class="card-head"><h3>Income vs spending</h3><div class="legend"><span class="lg lg-inc">Income</span><span class="lg lg-exp">Spending</span></div></div>' + barChart(viewMonth) + '</div>';
 
     html += '<div class="card"><div class="card-head"><h3>Savings outlook</h3><a href="#goals" class="small-link">Goals</a></div>' + goalsOutlook(true) + '</div>';
@@ -269,6 +273,94 @@
     const total = state.liabilities.reduce((a, l) => a + (l.payment || 0), 0);
     const paidTotal = state.liabilities.reduce((a, l) => a + (paymentFor(l.id, k) ? l.payment || 0 : 0), 0);
     return '<p class="muted small">' + money0(paidTotal) + ' of ' + money0(total) + ' paid this month</p><ul class="bills">' + rows.join('') + '</ul>';
+  }
+
+  // ---------- top spending and cut-back tips ----------
+  const ESSENTIAL_RE = /hous|rent|mortgage|transport|gas\b|fuel|car\b|auto|grocer|util|electric|water|phone|internet|health|medical|pharm|insur|child|daycare|debt|loan|tuition/i;
+  function isEssential(c) { return typeof c.essential === 'boolean' ? c.essential : ESSENTIAL_RE.test(c.name); }
+
+  function catStats(k, catId) {
+    const list = txnsIn(k).filter(t => t.type === 'expense' && t.categoryId === catId);
+    const total = round2(list.reduce((a, t) => a + t.amount, 0));
+    const byMerchant = {};
+    list.forEach(t => { const m = (t.merchant || '').trim(); if (m) byMerchant[m] = (byMerchant[m] || 0) + t.amount; });
+    const top = Object.keys(byMerchant).sort((a, b) => byMerchant[b] - byMerchant[a])[0];
+    const prev = round2(txnsIn(shiftMonth(k, -1)).filter(t => t.type === 'expense' && t.categoryId === catId).reduce((a, t) => a + t.amount, 0));
+    return { count: list.length, total, avg: list.length ? total / list.length : 0, prev, topMerchant: top, topMerchantAmt: top ? byMerchant[top] : 0 };
+  }
+
+  function topSpending(k) {
+    const spent = spentByCat(k);
+    const total = Object.values(spent).reduce((a, b) => a + b, 0);
+    const rows = Object.keys(spent).filter(id => spent[id] > 0).sort((a, b) => spent[b] - spent[a]).slice(0, 5);
+    if (!rows.length) return '<p class="muted">No spending logged this month yet.</p>';
+    const max = spent[rows[0]];
+    return '<ol class="topcats">' + rows.map((id, i) => {
+      const c = catById(id);
+      const st = catStats(k, id);
+      const diff = round2(st.total - st.prev);
+      const trend = st.prev ? (diff > 0 ? '<span class="neg">▲ ' + money0(diff) + '</span>' : diff < 0 ? '<span class="pos">▼ ' + money0(-diff) + '</span>' : '<span class="muted">Same</span>') + ' vs last month' : '<span class="muted">New this month</span>';
+      return '<li><span class="tc-rank">' + (i + 1) + '</span><div class="tc-body"><div class="tc-line"><span class="tc-name">' + esc(c.name) + '</span><span class="tag' + (isEssential(c) ? '' : ' tag-flex') + '">' + (isEssential(c) ? 'Essential' : 'Flexible') + '</span><b class="tc-amt">' + money0(spent[id]) + '</b></div>' +
+        '<span class="tc-bar"><i style="width:' + (spent[id] / max * 100).toFixed(1) + '%;background:' + catColor(id) + '"></i></span>' +
+        '<small class="muted">' + Math.round(spent[id] / total * 100) + '% of spending · ' + trend + '</small></div></li>';
+    }).join('') + '</ol>';
+  }
+
+  // Tip templates matched by category name. Each returns { headline, save, ideas }.
+  const TIP_RULES = [
+    { re: /dining|restaurant|eat|food|takeout|coffee|cafe|bar/i, build: (c, st) => {
+      const skip = Math.max(1, Math.ceil(st.count / 3));
+      return {
+        headline: 'You ate out ' + st.count + ' time' + (st.count === 1 ? '' : 's') + ' for ' + money0(st.total) + ' (about ' + money0(st.avg) + ' each). Swapping ' + skip + ' of those for a meal at home saves roughly ' + money0(skip * st.avg * 0.7) + '.',
+        save: skip * st.avg * 0.7,
+        ideas: ['Plan 3 or 4 dinners on the weekend so weeknights are easy', 'Pack lunch on workdays, even just twice a week', 'Make coffee at home and keep café trips as a treat', st.topMerchant ? 'Most went to ' + st.topMerchant + ' (' + money0(st.topMerchantAmt) + '). Set yourself a limit there first.' : 'Pick one "eat out" night a week and stick to it'],
+      };
+    } },
+    { re: /entertain|stream|subscri|fun|hobb|game|movie|music/i, build: (c, st) => {
+      const subs = state.liabilities.filter(l => l.type !== 'debt' && l.categoryId === c.id);
+      const subTotal = subs.reduce((a, l) => a + l.payment, 0);
+      return {
+        headline: 'Entertainment cost ' + money0(st.total) + ' this month' + (subs.length ? ', including ' + subs.length + ' subscription' + (subs.length === 1 ? '' : 's') + ' (' + money0(subTotal) + '/mo)' : '') + '. Cutting it by a quarter saves about ' + money0(st.total * 0.25) + '.',
+        save: st.total * 0.25,
+        ideas: [subs.length ? 'Review ' + subs.map(l => l.name).join(', ') + '. Cancel anything you haven\'t used in a month.' : 'List every subscription you pay for and cancel the ones you forgot about', 'Rotate streaming services: keep one at a time', 'Look for free local events, library passes and park days'],
+      };
+    } },
+    { re: /shop|cloth|amazon|retail|online|gift|beauty/i, build: (c, st) => ({
+      headline: 'Shopping came to ' + money0(st.total) + ' across ' + st.count + ' purchase' + (st.count === 1 ? '' : 's') + '. Waiting before you buy usually trims a fifth of that, about ' + money0(st.total * 0.2) + '.',
+      save: st.total * 0.2,
+      ideas: ['Use a 48-hour rule: leave it in the cart and decide later', 'Unsubscribe from store emails and turn off sale notifications', 'Make a list before you go and buy only what is on it'],
+    }) },
+    { re: /travel|vacation|trip/i, build: (c, st) => ({
+      headline: 'Travel cost ' + money0(st.total) + '. Booking earlier and travelling off-peak often cuts 15%, about ' + money0(st.total * 0.15) + '.',
+      save: st.total * 0.15,
+      ideas: ['Set up fare alerts instead of booking last minute', 'Put trips on a savings goal so they don\'t hit one month'],
+    }) },
+  ];
+
+  function cutBackTips(k) {
+    const spent = spentByCat(k);
+    const flex = state.categories.filter(c => !isEssential(c) && (spent[c.id] || 0) > 0).sort((a, b) => spent[b.id] - spent[a.id]).slice(0, 3);
+    if (!flex.length) {
+      return state.transactions.length
+        ? '<p class="muted">No flexible spending this month. Nice work. Mark which categories are essentials on the <a href="#budget">Budget</a> page.</p>'
+        : '<p class="muted">Tips show up here once you log some spending.</p>';
+    }
+    let totalSave = 0;
+    const cards = flex.map(c => {
+      const st = catStats(k, c.id);
+      const rule = TIP_RULES.find(r => r.re.test(c.name));
+      const tip = rule ? rule.build(c, st) : {
+        headline: c.name + ' came to ' + money0(st.total) + '. Trimming it by 15% frees up about ' + money0(st.total * 0.15) + '.',
+        save: st.total * 0.15,
+        ideas: ['Check the last few ' + c.name + ' purchases and flag the ones you wouldn\'t buy again', 'Give it a monthly limit on the Budget page so you see it filling up'],
+      };
+      if (c.budget && st.total > c.budget) tip.ideas.unshift('You\'re ' + money0(st.total - c.budget) + ' over your ' + money0(c.budget) + ' budget here.');
+      totalSave += tip.save;
+      return '<li class="tip"><div class="tip-head"><span class="dot" style="background:' + catColor(c.id) + '"></span><b>' + esc(c.name) + '</b><span class="tip-save">Save ~' + money0(tip.save) + '/mo</span></div><p>' + esc(tip.headline) + '</p><ul class="tip-ideas">' + tip.ideas.slice(0, 3).map(i => '<li>' + esc(i) + '</li>').join('') + '</ul></li>';
+    });
+    const goal = state.goals.find(g => g.saved < g.target);
+    const lead = '<p class="tip-lead">Cutting back here could free up about <b>' + money0(totalSave) + ' a month</b>' + (goal ? ' for your ' + esc(goal.name) : '') + '. Housing, groceries, transport and other essentials are left out.</p>';
+    return lead + '<ul class="tips">' + cards.join('') + '</ul>';
   }
 
   function categoryBars(k, limit) {
@@ -346,12 +438,13 @@
     let html = '<div class="stats three">' + statCard('Monthly budget', money(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
       statCard('Spent', money(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
       statCard('Remaining', money(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
-    html += '<div class="card"><div class="card-head"><h3>Categories</h3><button class="btn btn-ghost btn-sm" data-act="add-cat">+ Category</button></div><p class="muted small">Type a monthly limit for each category. Changes save automatically.</p><ul class="budget-rows">';
+    html += '<div class="card"><div class="card-head"><h3>Categories</h3><button class="btn btn-ghost btn-sm" data-act="add-cat">+ Category</button></div><p class="muted small">Type a monthly limit for each category. Tap Essential or Flexible to choose which ones get cut-back tips.</p><ul class="budget-rows">';
     html += state.categories.map(c => {
       const s = spent[c.id] || 0;
       const pct = c.budget ? s / c.budget : 0;
       const over = c.budget && s > c.budget;
       return '<li>' + donut(pct, over ? 'var(--neg)' : catColor(c.id)) + '<div class="br-name"><input class="inline" data-cat-name="' + c.id + '" value="' + esc(c.name) + '" aria-label="Category name"><small class="' + (over ? 'neg' : 'muted') + '">' + money(s) + ' spent' + (c.budget ? ' · ' + (over ? money(s - c.budget) + ' over' : money(c.budget - s) + ' left') : '') + '</small></div>' +
+        '<button type="button" class="tag tag-btn' + (isEssential(c) ? '' : ' tag-flex') + '" data-act="toggle-essential" data-id="' + c.id + '" title="Essentials are left out of cut-back tips">' + (isEssential(c) ? 'Essential' : 'Flexible') + '</button>' +
         '<label class="money-input"><span>$</span><input inputmode="decimal" data-cat-budget="' + c.id + '" value="' + (c.budget || '') + '" placeholder="0" aria-label="Monthly budget for ' + esc(c.name) + '"></label>' +
         '<button class="icon-btn" data-act="del-cat" data-id="' + c.id + '" aria-label="Delete ' + esc(c.name) + '">✕</button></li>';
     }).join('');
@@ -646,6 +739,7 @@
       case 'edit-goal': goalForm(state.goals.find(g => g.id === id)); break;
       case 'contribute': contributeForm(state.goals.find(g => g.id === id)); break;
       case 'add-cat': catForm(); break;
+      case 'toggle-essential': { const c = state.categories.find(x => x.id === id); if (c) { c.essential = !isEssential(c); save(); } break; }
       case 'del-cat': {
         const c = state.categories.find(x => x.id === id);
         const used = state.transactions.some(t => t.categoryId === id);
