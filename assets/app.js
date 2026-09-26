@@ -141,28 +141,81 @@
     return daily.map(v => (run += v));
   }
 
-  function lineChart(k) {
-    const W = 600, H = 200, P = { l: 8, r: 8, t: 12, b: 22 };
+  function niceStep(max, n) {
+    const raw = max / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+  }
+
+  function lineChart(k, H, fs) {
+    H = Math.max(200, H || 220);
+    fs = fs || 11;
+    const W = 600, P = { l: 46, r: 10, t: 14, b: 24 };
     const cur = cumulativeSeries(k);
     const prev = cumulativeSeries(shiftMonth(k, -1));
     const isCurrent = k === monthKey(new Date());
     const upTo = isCurrent ? new Date().getDate() : cur.length;
-    const max = Math.max(1, cur[upTo - 1] || 0, prev[prev.length - 1] || 0, totalBudget());
+    const days = cur.length;
+    const budget = totalBudget();
+    const spentNow = cur[upTo - 1] || 0;
+    const projected = isCurrent && upTo < days ? spentNow / upTo * days : 0;
+    const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected);
+    const step = niceStep(top, H > 300 ? 5 : 4);
+    const max = Math.ceil(top / step) * step;
     const x = (i, len) => P.l + (i / Math.max(1, len - 1)) * (W - P.l - P.r);
     const y = v => H - P.b - (v / max) * (H - P.t - P.b);
     const path = (arr, len) => arr.map((v, i) => (i ? 'L' : 'M') + x(i, len).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-    const days = cur.length;
-    const budget = totalBudget();
-    let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cumulative spending this month compared with last month">';
-    if (budget > 0) svg += '<line class="budget-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(budget) + '" y2="' + y(budget) + '"/><text class="axis" x="' + (W - P.r) + '" y="' + (y(budget) - 5) + '" text-anchor="end">Budget ' + esc(money0(budget)) + '</text>';
-    svg += '<path class="line-prev" d="' + path(prev, prev.length) + '"/>';
+    let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" style="--axis-fs:' + fs.toFixed(1) + 'px" role="img" aria-label="Cumulative spending this month compared with last month">';
+    for (let v = 0; v <= max + 0.001; v += step) {
+      svg += '<line class="grid-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (P.l - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + esc(compact(v)) + '</text>';
+    }
+    if (budget > 0) svg += '<line class="budget-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(budget) + '" y2="' + y(budget) + '"/><text class="axis budget-label" x="' + (W - P.r) + '" y="' + (y(budget) - 6) + '" text-anchor="end">Budget ' + esc(money0(budget)) + '</text>';
+    if (prev[prev.length - 1] > 0) svg += '<path class="line-prev" d="' + path(prev, prev.length) + '"/>';
     const curPts = cur.slice(0, upTo);
     svg += '<path class="line-area" d="' + path(curPts, days) + ' L' + x(upTo - 1, days) + ' ' + y(0) + ' L' + x(0, days) + ' ' + y(0) + ' Z"/>';
     svg += '<path class="line-cur" d="' + path(curPts, days) + '"/>';
-    svg += '<circle class="line-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(curPts[upTo - 1] || 0) + '" r="4.5"/>';
-    [1, Math.ceil(days / 2), days].forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 5) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
+    if (projected) svg += '<path class="line-proj" d="M' + x(upTo - 1, days) + ' ' + y(spentNow) + ' L' + x(days - 1, days) + ' ' + y(projected) + '"/><text class="axis proj-label" x="' + (W - P.r) + '" y="' + (y(projected) + (y(projected) < P.t + 16 ? 14 : -6)) + '" text-anchor="end">On pace for ' + esc(money0(projected)) + '</text>';
+    svg += '<circle class="line-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
+    (fs > 16 ? [1, 15, days] : [1, 8, 15, 22, days]).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
     return svg + '</svg>';
   }
+  function compact(v) { return v >= 1000 ? '$' + (v / 1000).toFixed(v % 1000 ? 1 : 0).replace(/\.0$/, '') + 'k' : '$' + Math.round(v); }
+
+  function spendingSummary(k) {
+    const cur = cumulativeSeries(k);
+    const isCurrent = k === monthKey(new Date());
+    const upTo = isCurrent ? new Date().getDate() : cur.length;
+    const spent = cur[upTo - 1] || 0;
+    const prev = cumulativeSeries(shiftMonth(k, -1));
+    const prevSame = prev[Math.min(upTo, prev.length) - 1] || 0;
+    const budget = totalBudget();
+    const daysLeft = cur.length - upTo;
+    const items = [
+      ['Spent so far', money0(spent), ''],
+      ['Last month', money0(prevSame), spent > prevSame ? 'neg' : 'pos', 'What you had spent by day ' + upTo + ' last month'],
+      ['Daily average', money0(spent / Math.max(1, upTo)), ''],
+      isCurrent && daysLeft > 0
+        ? (budget ? ['Safe per day', money0(Math.max(0, (budget - spent) / daysLeft)), budget - spent < 0 ? 'neg' : 'pos'] : ['Projected month-end', money0(spent / upTo * cur.length), ''])
+        : ['vs budget', budget ? (spent > budget ? money0(spent - budget) + ' over' : money0(budget - spent) + ' under') : '—', budget && spent > budget ? 'neg' : 'pos'],
+    ];
+    return '<div class="chart-stats">' + items.map(([l, v, t, tip]) => '<div' + (tip ? ' title="' + esc(tip) + '"' : '') + '><span>' + esc(l) + '</span><b class="' + t + '">' + esc(v) + '</b></div>').join('') + '</div>';
+  }
+
+  // Grow the spending chart to fill its card when the card beside it is taller.
+  function fitSpendingChart() {
+    const wrap = document.querySelector('#view-dashboard .chart-fill');
+    if (!wrap) return;
+    const svg = wrap.querySelector('svg');
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    if (!w || !svg) return;
+    // Keep the chart at least 240px tall on screen and its labels about 11px, however wide the card is.
+    const scale = 600 / w;
+    const target = Math.min(900, Math.max(Math.round(h * scale), Math.round(240 * scale)));
+    const fs = 11 * scale;
+    const current = svg.viewBox.baseVal.height;
+    if (Math.abs(target - current) > 6 || Math.abs(fs - 11) > 0.5) wrap.innerHTML = lineChart(viewMonth, target, fs);
+  }
+  let fitTimer;
+  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { if (currentView() === 'dashboard') renderDashboard(); }, 150); });
 
   function barChart(endK) {
     const months = [];
@@ -237,7 +290,7 @@
     html += '</div>';
 
     html += '<div class="grid">';
-    html += '<div class="card span-2"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-cur">' + esc(monthName(viewMonth, { month: 'short' })) + '</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span></div></div>' + lineChart(viewMonth) + '</div>';
+    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-cur">' + esc(monthName(viewMonth, { month: 'short' })) + '</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
@@ -254,6 +307,7 @@
     html += '<div class="card"><div class="card-head"><h3>Recent transactions</h3><a href="#transactions" class="small-link">See all</a></div>' + txnList(list.slice().sort(byDateDesc).slice(0, 6), true) + '</div>';
     html += '</div>';
     el.innerHTML = html;
+    fitSpendingChart();
   }
 
   function statCard(label, value, sub, tone) {
