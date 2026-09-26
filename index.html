@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Budgt: a clean budget dashboard, no subscription</title>
+  <meta name="description" content="Budgt is a budgeting web app with a clean dashboard you customize yourself. No subscription, no upsells, no clutter.">
+  <meta property="og:title" content="Budgt: a clean budget dashboard, no subscription">
+  <meta property="og:description" content="See where your money goes on a dashboard you design. No subscription required.">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="./" aria-label="Budgt home">
+        <img src="assets/favicon.svg" alt="" width="28" height="28">
+        <span>Budgt</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <!-- TODO: point this at the web app once it is deployed -->
+      <a class="btn btn-small" href="#get-started">Get started</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Budgeting without the monthly bill</p>
+          <h1>Your money, on a dashboard <span class="accent">you design.</span></h1>
+          <p class="lead">Budgt turns your spending into a clean, custom dashboard. Pick the charts you care about, hide the ones you don't, and never pay a subscription to see your own numbers.</p>
+          <div class="cta-row">
+            <a class="btn" href="#get-started">Build your dashboard</a>
+            <a class="btn btn-ghost" href="#how">See how it works</a>
+          </div>
+          <ul class="hero-points">
+            <li>No subscription</li>
+            <li>No ads or upsells</li>
+            <li>Works in your browser</li>
+          </ul>
+        </div>
+
+        <div class="mock" aria-label="Example Budgt dashboard" role="img">
+          <div class="mock-bar"><span></span><span></span><span></span></div>
+          <div class="mock-body">
+            <div class="tile tile-wide">
+              <p class="tile-label">September balance</p>
+              <p class="tile-value">$2,418<span>.60</span></p>
+              <p class="tile-delta up">+$312 vs August</p>
+            </div>
+            <div class="tile">
+              <p class="tile-label">Spent</p>
+              <p class="tile-value small">$3,081</p>
+              <div class="meter"><span style="width:72%"></span></div>
+              <p class="tile-note">72% of budget</p>
+            </div>
+            <div class="tile">
+              <p class="tile-label">Saved</p>
+              <p class="tile-value small">$640</p>
+              <div class="meter meter-alt"><span style="width:64%"></span></div>
+              <p class="tile-note">64% of goal</p>
+            </div>
+            <div class="tile tile-wide">
+              <p class="tile-label">Spending by category</p>
+              <ul class="bars">
+                <li><span class="bar-name">Housing</span><span class="bar"><i style="width:92%"></i></span><span class="bar-amt">$1,400</span></li>
+                <li><span class="bar-name">Groceries</span><span class="bar"><i style="width:38%"></i></span><span class="bar-amt">$562</span></li>
+                <li><span class="bar-name">Transport</span><span class="bar"><i style="width:22%"></i></span><span class="bar-amt">$318</span></li>
+                <li><span class="bar-name">Dining</span><span class="bar"><i style="width:17%"></i></span><span class="bar-amt">$241</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Features</p>
+          <h2>Everything you need, nothing you don't</h2>
+          <p>Most budget apps bury the useful parts under tabs, tips and trial banners. Budgt keeps it to one screen that works the way you think.</p>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/></svg>
+            </div>
+            <h3>Custom dashboard</h3>
+            <p>Arrange widgets for balances, goals, categories and trends. Your layout, your priorities.</p>
+          </article>
+          <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
+            </div>
+            <h3>Clear categories</h3>
+            <p>See exactly where each dollar went this month, with categories you name yourself.</p>
+          </article>
+          <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            </div>
+            <h3>Budgets and goals</h3>
+            <p>Set monthly limits and savings targets, and watch progress update as you log spending.</p>
+          </article>
+          <article class="card">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg>
+            </div>
+            <h3>No subscription</h3>
+            <p>No monthly fee to unlock your own data, and no premium tier holding features hostage.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" class="section section-alt">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">How it works</p>
+          <h2>Up and running in three steps</h2>
+        </div>
+        <ol class="steps">
+          <li>
+            <span class="step-num">1</span>
+            <h3>Add your income and expenses</h3>
+            <p>Enter transactions as they happen, or add your recurring bills once.</p>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <h3>Pick your widgets</h3>
+            <p>Choose the cards and charts you want on your dashboard and drag them into place.</p>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <h3>Check in, stay on track</h3>
+            <p>Open Budgt any time for a one-glance view of where you stand this month.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="pricing" class="section">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Pricing</p>
+          <h2>No subscription. Seriously.</h2>
+          <p>Budgeting apps shouldn't become another recurring expense in your budget.</p>
+        </div>
+        <div class="compare">
+          <div class="compare-col">
+            <h3>Typical budget apps</h3>
+            <ul class="x-list">
+              <li>Monthly or yearly subscription</li>
+              <li>Key features behind a paywall</li>
+              <li>Cluttered screens and upsells</li>
+              <li>One-size-fits-all dashboard</li>
+            </ul>
+          </div>
+          <div class="compare-col compare-us">
+            <h3>Budgt</h3>
+            <ul class="check-list">
+              <li>No subscription</li>
+              <li>Every feature included</li>
+              <li>Clean, distraction-free design</li>
+              <li>A dashboard you customize</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="section section-alt">
+      <div class="container narrow">
+        <div class="section-head">
+          <p class="eyebrow">FAQ</p>
+          <h2>Questions, answered</h2>
+        </div>
+        <details>
+          <summary>Do I need to pay monthly?</summary>
+          <p>No. Budgt is built around having no subscription. You won't be asked to start a trial or upgrade to a paid tier.</p>
+        </details>
+        <details>
+          <summary>What devices does it work on?</summary>
+          <p>Budgt is a web app, so it runs in any modern browser on your laptop, tablet or phone. There's nothing to install.</p>
+        </details>
+        <details>
+          <summary>Can I change my dashboard later?</summary>
+          <p>Any time. Add, remove and rearrange widgets whenever your priorities change.</p>
+        </details>
+      </div>
+    </section>
+
+    <section id="get-started" class="section">
+      <div class="container">
+        <div class="cta-panel">
+          <h2>Take control of your budget today</h2>
+          <p>A clearer picture of your money is one dashboard away.</p>
+          <!-- TODO: replace with the live app URL once it is deployed -->
+          <a class="btn btn-light" href="https://github.com/keganberg/budgt">Follow the project on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <a class="brand" href="./">
+        <img src="assets/favicon.svg" alt="" width="22" height="22">
+        <span>Budgt</span>
+      </a>
+      <p>&copy; <span id="year">2026</span> Budgt. Budgeting without the subscription.</p>
+    </div>
+  </footer>
+
+  <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+</body>
+</html>
