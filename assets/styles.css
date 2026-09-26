@@ -371,3 +371,27 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 .chart-stats span { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chart-stats b { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) { .chart-stats { grid-template-columns: 1fr 1fr; } }
+
+/* Totals for the transactions on screen */
+.view-totals { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; }
+.vt-count { flex: 1; min-width: 160px; font-size: 0.82rem; color: var(--muted); }
+.vt-count .link-btn { color: var(--brand); font-size: inherit; font-weight: 600; }
+.vt-cell { display: flex; flex-direction: column; align-items: flex-end; }
+.vt-cell span { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.vt-cell b { font-variant-numeric: tabular-nums; font-size: 0.95rem; }
+.vt-net b { font-size: 1.25rem; }
+@media (max-width: 760px) { .view-totals { gap: 14px; } .vt-count { flex-basis: 100%; } }
+
+/* Autocomplete */
+.ac-wrap { position: relative; }
+.ac-list { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; z-index: 30; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.35); padding: 4px; max-height: 260px; overflow-y: auto; }
+.ac-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text); font-size: 0.9rem; }
+.ac-list li small { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+.ac-list li.on, .ac-list li:hover { background: var(--brand-soft); }
+.item-row .ac-list { min-width: 220px; }
+
+/* Category totals link to their transactions */
+.spent-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; }
+.spent-link:hover { color: var(--brand); text-decoration-color: currentColor; }
+.tc-name.spent-link, .cb-name.spent-link { text-decoration: none; }
+.tc-name.spent-link:hover, .cb-name.spent-link:hover { text-decoration: underline; }

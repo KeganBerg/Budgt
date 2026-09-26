@@ -354,7 +354,7 @@
       const st = catStats(k, id);
       const diff = round2(st.total - st.prev);
       const trend = st.prev ? (diff > 0 ? '<span class="neg">▲ ' + money0(diff) + '</span>' : diff < 0 ? '<span class="pos">▼ ' + money0(-diff) + '</span>' : '<span class="muted">Same</span>') + ' vs last month' : '<span class="muted">New this month</span>';
-      return '<li><span class="tc-rank">' + (i + 1) + '</span><div class="tc-body"><div class="tc-line"><span class="tc-name">' + esc(c.name) + '</span><span class="tag' + (isEssential(c) ? '' : ' tag-flex') + '">' + (isEssential(c) ? 'Essential' : 'Flexible') + '</span><b class="tc-amt">' + money0(spent[id]) + '</b></div>' +
+      return '<li><span class="tc-rank">' + (i + 1) + '</span><div class="tc-body"><div class="tc-line"><button type="button" class="tc-name spent-link" data-act="view-cat" data-id="' + id + '" title="See these transactions">' + esc(c.name) + '</button><span class="tag' + (isEssential(c) ? '' : ' tag-flex') + '">' + (isEssential(c) ? 'Essential' : 'Flexible') + '</span><b class="tc-amt">' + money0(spent[id]) + '</b></div>' +
         '<span class="tc-bar"><i style="width:' + (spent[id] / max * 100).toFixed(1) + '%;background:' + catColor(id) + '"></i></span>' +
         '<small class="muted">' + Math.round(spent[id] / total * 100) + '% of spending · ' + trend + '</small></div></li>';
     }).join('') + '</ol>';
@@ -426,7 +426,7 @@
     return '<ul class="catbars">' + cats.map(({ c, s }) => {
       const pct = c.budget ? s / c.budget : (s ? 1 : 0);
       const over = c.budget && s > c.budget;
-      return '<li><span class="dot" style="background:' + catColor(c.id) + '"></span><span class="cb-name">' + esc(c.name) + '</span><span class="cb-bar"><i style="width:' + Math.min(100, pct * 100).toFixed(1) + '%;background:' + (over ? 'var(--neg)' : catColor(c.id)) + '"></i></span><span class="cb-amt' + (over ? ' neg' : '') + '">' + money0(s) + (c.budget ? '<small> / ' + money0(c.budget) + '</small>' : '') + '</span></li>';
+      return '<li><span class="dot" style="background:' + catColor(c.id) + '"></span><button type="button" class="cb-name spent-link" data-act="view-cat" data-id="' + c.id + '" title="See these transactions">' + esc(c.name) + '</button><span class="cb-bar"><i style="width:' + Math.min(100, pct * 100).toFixed(1) + '%;background:' + (over ? 'var(--neg)' : catColor(c.id)) + '"></i></span><span class="cb-amt' + (over ? ' neg' : '') + '">' + money0(s) + (c.budget ? '<small> / ' + money0(c.budget) + '</small>' : '') + '</span></li>';
     }).join('') + '</ul>';
   }
 
@@ -477,10 +477,23 @@
     const opts = '<option value="">All categories</option><option value="income"' + (txnFilter.cat === 'income' ? ' selected' : '') + '>Income</option>' + state.categories.map(c => '<option value="' + c.id + '"' + (txnFilter.cat === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
     const all = txnsIn(viewMonth);
     el.innerHTML = '<div class="card"><div class="toolbar"><input type="search" id="txnSearch" placeholder="Search merchants, notes, receipt items" value="' + esc(txnFilter.q) + '"><select id="txnCat">' + opts + '</select></div>' +
-      '<p class="muted small">' + list.length + ' transactions · In ' + money(sumBy(all, 'income')) + ' · Out ' + money(sumBy(all, 'expense')) + '</p>' + txnList(list, false) + '</div>';
+      viewTotals(list, all.length) + txnList(list, false) + '</div>';
     const s = $('#txnSearch');
     s.addEventListener('input', () => { txnFilter.q = s.value; const pos = s.selectionStart; renderTransactions(); const n = $('#txnSearch'); n.focus(); n.setSelectionRange(pos, pos); });
     $('#txnCat').addEventListener('change', e => { txnFilter.cat = e.target.value; renderTransactions(); });
+    const clr = $('#clearFilters');
+    if (clr) clr.addEventListener('click', () => { txnFilter = { q: '', cat: '' }; renderTransactions(); });
+  }
+
+  // Totals for exactly the transactions on screen, so a search or filter shows its own net.
+  function viewTotals(list, allCount) {
+    const inc = sumBy(list, 'income'), out = sumBy(list, 'expense'), net = round2(inc - out);
+    const filtered = list.length !== allCount || txnFilter.q || txnFilter.cat;
+    const label = filtered ? 'Showing ' + list.length + ' of ' + allCount + ' · <button type="button" class="link-btn" id="clearFilters">Clear filters</button>' : list.length + ' transaction' + (list.length === 1 ? '' : 's') + ' in ' + esc(monthName(viewMonth, { month: 'long' }));
+    return '<div class="view-totals"><div class="vt-count">' + label + '</div>' +
+      '<div class="vt-cell"><span>In</span><b class="pos">+' + money(inc) + '</b></div>' +
+      '<div class="vt-cell"><span>Out</span><b>−' + money(out) + '</b></div>' +
+      '<div class="vt-cell vt-net"><span>Net</span><b class="' + (net > 0 ? 'pos' : net < 0 ? 'neg' : '') + '">' + (net > 0 ? '+' : net < 0 ? '−' : '') + money(Math.abs(net)) + '</b></div></div>';
   }
 
   function renderBudget() {
@@ -497,7 +510,7 @@
       const s = spent[c.id] || 0;
       const pct = c.budget ? s / c.budget : 0;
       const over = c.budget && s > c.budget;
-      return '<li>' + donut(pct, over ? 'var(--neg)' : catColor(c.id)) + '<div class="br-name"><input class="inline" data-cat-name="' + c.id + '" value="' + esc(c.name) + '" aria-label="Category name"><small class="' + (over ? 'neg' : 'muted') + '">' + money(s) + ' spent' + (c.budget ? ' · ' + (over ? money(s - c.budget) + ' over' : money(c.budget - s) + ' left') : '') + '</small></div>' +
+      return '<li>' + donut(pct, over ? 'var(--neg)' : catColor(c.id)) + '<div class="br-name"><input class="inline" data-cat-name="' + c.id + '" value="' + esc(c.name) + '" aria-label="Category name"><small class="' + (over ? 'neg' : 'muted') + '">' + (s ? '<button type="button" class="spent-link" data-act="view-cat" data-id="' + c.id + '" title="See these transactions">' + money(s) + ' spent</button>' : money(s) + ' spent') + (c.budget ? ' · ' + (over ? money(s - c.budget) + ' over' : money(c.budget - s) + ' left') : '') + '</small></div>' +
         '<button type="button" class="tag tag-btn' + (isEssential(c) ? '' : ' tag-flex') + '" data-act="toggle-essential" data-id="' + c.id + '" title="Essentials are left out of cut-back tips">' + (isEssential(c) ? 'Essential' : 'Flexible') + '</button>' +
         '<label class="money-input"><span>$</span><input inputmode="decimal" data-cat-budget="' + c.id + '" value="' + (c.budget || '') + '" placeholder="0" aria-label="Monthly budget for ' + esc(c.name) + '"></label>' +
         '<button class="icon-btn" data-act="del-cat" data-id="' + c.id + '" aria-label="Delete ' + esc(c.name) + '">✕</button></li>';
@@ -685,8 +698,86 @@
     $('#useItems').addEventListener('click', () => { const s = itemsTotal(); if (s > 0) $('#f-amount').value = s.toFixed(2); updateItemsSum(); });
     $('#itemRows').addEventListener('click', e => { if (e.target.closest('[data-rm-item]')) { e.target.closest('li').remove(); updateItemsSum(); } });
     $('#itemRows').addEventListener('input', updateItemsSum);
+
+    // Autocomplete: picking a past merchant also fills its usual category, amount and note.
+    attachAutocomplete($('#f-merchant'), () => pastEntries(x => [[x.merchant]]).map(e => {
+      const t = e.last;
+      e.sub = (t.type === 'income' ? '+' : '') + money(t.amount) + ' · ' + catById(t.categoryId).name + ' · ' + e.count + '×';
+      return e;
+    }), e => {
+      const last = e.last;
+      const radio = modal.querySelector('input[name=ttype][value="' + last.type + '"]');
+      if (radio && !radio.checked) { radio.checked = true; radio.dispatchEvent(new Event('change', { bubbles: true })); }
+      const cat = $('#f-cat');
+      if (cat && Array.from(cat.options).some(o => o.value === last.categoryId)) cat.value = last.categoryId;
+      const amt = $('#f-amount');
+      if (!amt.value.trim()) { amt.value = last.amount; updateItemsSum(); }
+      if (!val('f-note') && last.note) $('#f-note').value = last.note;
+      saveDraft();
+    });
+    attachAutocomplete($('#f-note'), () => pastEntries(x => [[x.note]]));
+    const itemSource = () => pastEntries(x => (x.items || []).map(i => [i.name, i])).map(e => { e.sub = money(e.last.amount); return e; });
+    const wireItem = row => {
+      const name = row.querySelector('.it-name');
+      if (!name || name.dataset.ac) return;
+      name.dataset.ac = '1';
+      attachAutocomplete(name, itemSource, e => { const a = row.querySelector('.it-amt'); if (!a.value.trim()) { a.value = e.last.amount; updateItemsSum(); saveDraft(); } });
+    };
+    modal.querySelectorAll('.item-row').forEach(wireItem);
+    new MutationObserver(() => modal.querySelectorAll('.item-row').forEach(wireItem)).observe($('#itemRows'), { childList: true });
     $('#f-amount').addEventListener('input', updateItemsSum);
     updateItemsSum();
+  }
+
+  // ---------- autocomplete from past entries ----------
+  // Remembers merchants, notes and receipt items you've typed before, most used first.
+  function pastEntries(pick) {
+    const map = new Map();
+    state.transactions.slice().sort((a, b) => a.date.localeCompare(b.date) || (a.created || 0) - (b.created || 0)).forEach(t => {
+      pick(t).forEach(([text, extra]) => {
+        const v = (text || '').trim(); if (!v) return;
+        const key = v.toLowerCase();
+        const e = map.get(key) || { value: v, count: 0 };
+        e.count++; e.value = v; e.last = extra || t; map.set(key, e);
+      });
+    });
+    return Array.from(map.values());
+  }
+
+  function attachAutocomplete(input, source, onPick) {
+    const wrap = input.parentNode;
+    wrap.classList.add('ac-wrap');
+    const box = document.createElement('ul');
+    box.className = 'ac-list'; box.hidden = true; box.setAttribute('role', 'listbox');
+    input.after(box);
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('aria-autocomplete', 'list');
+    let items = [], active = -1;
+    function show() {
+      const q = input.value.trim().toLowerCase();
+      const all = source();
+      items = all.filter(e => !q || e.value.toLowerCase().includes(q)).filter(e => e.value.toLowerCase() !== q)
+        .sort((a, b) => (b.value.toLowerCase().startsWith(q) - a.value.toLowerCase().startsWith(q)) || b.count - a.count).slice(0, 6);
+      active = items.length && q ? 0 : -1;
+      if (!items.length) { box.hidden = true; return; }
+      box.innerHTML = items.map((e, i) => '<li role="option" data-i="' + i + '" class="' + (i === active ? 'on' : '') + '"><span>' + esc(e.value) + '</span>' + (e.sub ? '<small>' + esc(e.sub) + '</small>' : '') + '</li>').join('');
+      box.hidden = false;
+    }
+    function hide() { box.hidden = true; active = -1; }
+    function choose(i) { const e = items[i]; if (!e) return; input.value = e.value; hide(); if (onPick) onPick(e); input.dispatchEvent(new Event('input', { bubbles: true })); hide(); }
+    input.addEventListener('input', e => { if (e.isTrusted) show(); });
+    input.addEventListener('focus', show);
+    input.addEventListener('blur', () => setTimeout(hide, 120));
+    input.addEventListener('keydown', e => {
+      if (box.hidden) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        box.querySelectorAll('li').forEach((li, i) => li.classList.toggle('on', i === active));
+      } else if ((e.key === 'Enter' || e.key === 'Tab') && active >= 0) { e.preventDefault(); choose(active); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hide(); }
+    });
+    box.addEventListener('mousedown', e => { const li = e.target.closest('li'); if (li) { e.preventDefault(); choose(+li.dataset.i); } });
   }
 
   function lastCategory() {
@@ -793,6 +884,7 @@
       case 'edit-goal': goalForm(state.goals.find(g => g.id === id)); break;
       case 'contribute': contributeForm(state.goals.find(g => g.id === id)); break;
       case 'add-cat': catForm(); break;
+      case 'view-cat': txnFilter = { q: '', cat: id }; if (location.hash === '#transactions') render(); else location.hash = '#transactions'; window.scrollTo(0, 0); break;
       case 'toggle-essential': { const c = state.categories.find(x => x.id === id); if (c) { c.essential = !isEssential(c); save(); } break; }
       case 'del-cat': {
         const c = state.categories.find(x => x.id === id);
