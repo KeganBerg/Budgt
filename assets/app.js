@@ -1445,7 +1445,7 @@
       $('#receiptBox').open = true;
     }
     updateItemsSum();
-    say('Filled in from your receipt' + (r.items.length ? ', ' + r.items.length + ' item' + (r.items.length === 1 ? '' : 's') : '') + '. Check it before saving.', 'pos');
+    say('');
   }
 
   function pastEntries(pick) {
