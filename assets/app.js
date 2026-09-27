@@ -292,28 +292,29 @@
     html += strainBanner();
 
     html += '<div class="grid">';
-    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-cur">' + esc(monthName(viewMonth, { month: 'short' })) + '</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
+    html += '<div class="card span-2 card-fill" data-tone="teal"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-cur">' + esc(monthName(viewMonth, { month: 'short' })) + '</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
 
-    html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
+    html += '<div class="card" data-tone="amber"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
-    html += '<div class="card"><div class="card-head"><h3>Top spending</h3><a href="#transactions" class="small-link">Details</a></div>' + topSpending(viewMonth) + '</div>';
+    html += '<div class="card" data-tone="rose"><div class="card-head"><h3>Top spending</h3><a href="#transactions" class="small-link">Details</a></div>' + topSpending(viewMonth) + '</div>';
 
-    html += '<div class="card span-2"><div class="card-head"><h3>Ways to cut back</h3><a href="#budget" class="small-link">Essentials</a></div>' + cutBackTips(viewMonth) + '</div>';
+    html += '<div class="card span-2" data-tone="emerald"><div class="card-head"><h3>Ways to cut back</h3><a href="#budget" class="small-link">Essentials</a></div>' + cutBackTips(viewMonth) + '</div>';
 
-    html += '<div class="card span-2"><div class="card-head"><h3>Income vs spending</h3><div class="legend"><span class="lg lg-inc">Income</span><span class="lg lg-exp">Spending</span></div></div>' + barChart(viewMonth) + '</div>';
+    html += '<div class="card span-2" data-tone="sky"><div class="card-head"><h3>Income vs spending</h3><div class="legend"><span class="lg lg-inc">Income</span><span class="lg lg-exp">Spending</span></div></div>' + barChart(viewMonth) + '</div>';
 
-    html += '<div class="card"><div class="card-head"><h3>Savings outlook</h3><a href="#goals" class="small-link">Goals</a></div>' + goalsOutlook(true) + '</div>';
+    html += '<div class="card" data-tone="violet"><div class="card-head"><h3>Savings outlook</h3><a href="#goals" class="small-link">Goals</a></div>' + goalsOutlook(true) + '</div>';
 
-    html += '<div class="card span-2"><div class="card-head"><h3>Budget by category</h3><a href="#budget" class="small-link">Edit budget</a></div>' + categoryBars(viewMonth, 6) + '</div>';
+    html += '<div class="card span-2" data-tone="indigo"><div class="card-head"><h3>Budget by category</h3><a href="#budget" class="small-link">Edit budget</a></div>' + categoryBars(viewMonth, 9) + '</div>';
 
-    html += '<div class="card"><div class="card-head"><h3>Recent transactions</h3><a href="#transactions" class="small-link">See all</a></div>' + txnList(list.slice().sort(byDateDesc).slice(0, 6), true) + '</div>';
+    html += '<div class="card" data-tone="slate"><div class="card-head"><h3>Recent transactions</h3><a href="#transactions" class="small-link">See all</a></div>' + txnList(list.slice().sort(byDateDesc).slice(0, 6), true) + '</div>';
     html += '</div>';
     el.innerHTML = html;
     fitSpendingChart();
   }
 
+  const STAT_TONES = { 'Left to spend': 'teal', Spent: 'rose', Income: 'sky', 'Total debt': 'amber' };
   function statCard(label, value, sub, tone) {
-    return '<div class="card stat"><p class="stat-label">' + label + '</p><p class="stat-value">' + value + '</p><p class="stat-sub ' + (tone || '') + '">' + sub + '</p></div>';
+    return '<div class="card stat" data-tone="' + (STAT_TONES[label] || 'slate') + '"><p class="stat-label">' + label + '</p><p class="stat-value">' + value + '</p><p class="stat-sub ' + (tone || '') + '">' + sub + '</p></div>';
   }
 
   function upcomingBills() {
