@@ -658,3 +658,6 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 @media (max-width: 360px) { .plan-table { font-size: 0.74rem; } .plan-table th, .plan-table td { padding-left: 2px; padding-right: 2px; } }
 /* The header is already sticky on phones; a second sticky bar would slide under it. */
 @media (max-width: 760px) { .view-totals { position: static; } }
+
+.phone-backup { display: none; text-align: center; margin: 20px 0 8px; line-height: 1.8; }
+@media (max-width: 760px) { .phone-backup { display: block; } }

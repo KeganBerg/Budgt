@@ -820,6 +820,8 @@
       return '<li class="goal-card"><div class="gc-top">' + donut(pct, o.color) + '<div><b>' + esc(g.name) + '</b><small class="muted">' + Math.round(pct * 100) + '% · ' + money0(g.saved) + ' of ' + money0(g.target) + (g.date ? ' · by ' + esc(shortMonth(g.date)) : '') + '</small></div></div><p class="' + o.tone + ' small">' + o.text + '</p><div class="row-actions"><button class="btn btn-sm" data-act="contribute" data-id="' + g.id + '">+ Add money</button><button class="btn btn-ghost btn-sm" data-act="edit-goal" data-id="' + g.id + '">Edit</button></div></li>';
     }).join('') + '</ul>';
     html += '</div>';
+    // Phones hide the sidebar, so backups live here too.
+    html += '<p class="phone-backup muted small"><button type="button" class="link-btn" data-act="export">Export backup</button> · <button type="button" class="link-btn" data-act="import">Import backup</button><br>Your data stays in this browser. Keep a backup in case it\'s cleared.</p>';
     el.innerHTML = html;
   }
 
@@ -1678,6 +1680,8 @@
         save(); break;
       }
       case 'sample': loadSample(); break;
+      case 'export': $('#exportBtn').click(); break;
+      case 'import': $('#importFile').click(); break;
     }
   });
 
