@@ -295,6 +295,7 @@
     document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.view === v));
     $('#viewTitle').textContent = titles[v];
     $('#monthLabel').textContent = monthName(viewMonth);
+    $('#monthLabelShort').textContent = monthName(viewMonth, { month: 'short', year: 'numeric' });
     $('.month-picker').style.visibility = (v === 'goals' || v === 'liabilities') ? 'hidden' : '';
     ({ dashboard: renderDashboard, transactions: renderTransactions, budget: renderBudget, liabilities: renderLiabilities, goals: renderGoals })[v]();
   }
@@ -307,8 +308,8 @@
     const el = $('#view-dashboard');
     if (!state.transactions.length && !state.liabilities.length && !state.goals.length) {
       el.innerHTML = emptyCard('Welcome to Budgt',
-        'Start by adding a transaction, setting your monthly budget, or listing your bills and debts. Want to look around first? Load some sample data and clear it whenever you like.',
-        '<button class="btn" data-act="add-txn">Add a transaction</button><a class="btn btn-ghost" href="#budget">Set a budget</a><button class="btn btn-ghost" data-act="sample">Load sample data</button>');
+        'Add your first transaction with the + button, set a monthly budget, or load sample data to look around. You can clear it any time.',
+        '<a class="btn" href="#budget">Set a budget</a><button class="btn btn-ghost" data-act="sample">Load sample data</button>');
       return;
     }
     const list = txnsIn(viewMonth);
