@@ -633,3 +633,11 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
   /* Two tabs left, three right: the left slots are wider so the + sits exactly in the middle. */
   .tabs { grid-template-columns: 1.5fr 1.5fr 64px 1fr 1fr 1fr; }
 }
+
+/* ---------- receipt scanning ---------- */
+.scan-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.scan-btn { cursor: pointer; }
+.scan-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+.scan-status { font-size: 0.8rem; color: var(--muted); }
+.scan-status.pos { color: var(--pos); } .scan-status.neg { color: var(--neg); }
+@media (max-width: 760px) { .scan-btn { width: 100%; justify-content: center; padding: 12px; } .scan-status { width: 100%; text-align: center; } }

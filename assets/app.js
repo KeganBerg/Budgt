@@ -1265,6 +1265,7 @@
     const isNew = !t;
     t = t || { type: 'expense', amount: '', date: viewMonth === monthKey(new Date()) ? todayISO() : viewMonth + '-01', merchant: '', categoryId: lastCategory(), note: '', items: [] };
     const body =
+      '<div class="scan-row"><label class="btn btn-ghost btn-sm scan-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Scan receipt</span><input type="file" id="scanFile" accept="image/*" hidden></label><span class="scan-status" id="scanStatus" role="status"></span></div>' +
       '<div class="seg" role="radiogroup"><label><input type="radio" name="ttype" value="expense"' + (t.type === 'expense' ? ' checked' : '') + '><span>Expense</span></label><label><input type="radio" name="ttype" value="income"' + (t.type === 'income' ? ' checked' : '') + '><span>Income</span></label></div>' +
       '<div class="form-grid">' +
       field('Amount', '<input id="f-amount" inputmode="decimal" placeholder="0.00" value="' + (t.amount || '') + '" required>') +
@@ -1295,6 +1296,7 @@
       const inc = r.value === 'income' && r.checked;
       if (r.checked) $('#f-cat').innerHTML = catOptions(inc ? 'income' : (t.categoryId !== 'income' ? t.categoryId : ''), inc);
     }));
+    $('#scanFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) scanReceipt(f); });
     $('#addItem').addEventListener('click', () => { $('#itemRows').insertAdjacentHTML('beforeend', itemRow()); $('#itemRows').lastElementChild.querySelector('input').focus(); updateItemsSum(); });
     $('#useItems').addEventListener('click', () => { const s = itemsTotal(); if (s > 0) $('#f-amount').value = s.toFixed(2); updateItemsSum(); });
     $('#itemRows').addEventListener('click', e => { if (e.target.closest('[data-rm-item]')) { e.target.closest('li').remove(); updateItemsSum(); } });
@@ -1332,6 +1334,120 @@
 
   // ---------- autocomplete from past entries ----------
   // Remembers merchants, notes and receipt items you've typed before, most used first.
+  // ---------- receipt scanning ----------
+  // Text recognition runs in the browser with Tesseract.js; the photo never leaves the device.
+  // Only the recognition engine and its English data are downloaded, the first time you scan.
+  const TESS_JS = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+  const TESS_LANG = 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int';
+  let tessLoading = null;
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve();
+    return tessLoading || (tessLoading = new Promise((ok, no) => {
+      const sc = document.createElement('script'); sc.src = TESS_JS; sc.async = true;
+      sc.onload = ok; sc.onerror = () => { tessLoading = null; no(new Error('load')); };
+      document.head.appendChild(sc);
+    }));
+  }
+  // Downscale, grayscale and stretch contrast: receipts are faint and phone photos are huge.
+  async function prepReceipt(file) {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const g = c.getContext('2d'); g.drawImage(bmp, 0, 0, c.width, c.height);
+    const img = g.getImageData(0, 0, c.width, c.height), d = img.data;
+    let lo = 255, hi = 0;
+    for (let i = 0; i < d.length; i += 4) { const v = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114; d[i] = v; if (v < lo) lo = v; if (v > hi) hi = v; }
+    const span = Math.max(1, hi - lo);
+    for (let i = 0; i < d.length; i += 4) { const v = (d[i] - lo) / span * 255; d[i] = d[i + 1] = d[i + 2] = v; }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
+  const PRICE_END = /(-?)\$?\s?(\d{1,5}(?:,\d{3})*[.,]\s?\d{2})\s*-?\s*[A-Z*]{0,2}\s*$/;
+  const NOT_ITEM = /sub\s*-?total|total|tax|change|cash|visa|master|amex|discover|debit|credit|card|balance|tender|payment|paid|auth|approv|saving|you saved|discount|coupon|tip|gratuity|rounding|points|reward|refund|items? sold|qty|account|member/i;
+  function parseReceipt(text) {
+    const lines = text.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const price = l => { const m = l.match(PRICE_END); return m ? (m[1] ? -1 : 1) * parseFloat(m[2].replace(/,(?=\d{3})/g, '').replace(/,\s?(\d{2})$/, '.$1').replace(/\s/g, '')) : null; };
+    // Total: the last "total" line that isn't a subtotal, savings or tax line.
+    let total = null, totalIdx = -1;
+    lines.forEach((l, i) => {
+      if (/(^|\s)(grand\s*)?total|amount\s*due|balance\s*due|total\s*due/i.test(l) && !/sub\s*-?total|saving|tax|items/i.test(l)) {
+        const p = price(l); if (p > 0) { total = p; totalIdx = i; }
+      }
+    });
+    const prices = lines.map(price);
+    if (total == null) { const ps = prices.filter(p => p > 0); if (ps.length) { total = Math.max(...ps); totalIdx = prices.lastIndexOf(total); } }
+    // Items: priced lines above the total that aren't payment or tax lines.
+    const items = [];
+    lines.forEach((l, i) => {
+      if (totalIdx >= 0 && i >= totalIdx) return;
+      const p = prices[i]; if (p == null || p === 0 || NOT_ITEM.test(l)) return;
+      let name = l.replace(PRICE_END, '').replace(/^[\d\s#@x*.-]+(?=[A-Za-z])/, '').replace(/\b\d{6,}\b/g, '').replace(/[^A-Za-z0-9&'%/ .-]/g, ' ').replace(/\s+/g, ' ').trim();
+      if ((name.match(/[A-Za-z]/g) || []).length < 2) return;
+      name = name.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase()).slice(0, 40);
+      items.push({ name, amount: round2(p) });
+    });
+    // Date: first date-looking string that isn't in the future.
+    let date = null;
+    const today = todayISO();
+    for (const l of lines) {
+      let m = l.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/), y, mo, da;
+      if (m) { y = +m[1]; mo = +m[2]; da = +m[3]; }
+      else if ((m = l.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2}|\d{4})\b/))) { mo = +m[1]; da = +m[2]; y = +m[3]; if (y < 100) y += 2000; }
+      if (!m || mo < 1 || mo > 12 || da < 1 || da > 31) continue;
+      const iso = y + '-' + String(mo).padStart(2, '0') + '-' + String(da).padStart(2, '0');
+      if (iso <= today && iso >= shiftMonth(today.slice(0, 7), -18)) { date = iso; break; }
+    }
+    // Store: the first line near the top that reads like a name, not an address, phone or number.
+    let merchant = '';
+    for (const l of lines.slice(0, 6)) {
+      const letters = (l.match(/[A-Za-z]/g) || []).length;
+      if (letters < 3 || letters < l.replace(/\s/g, '').length * 0.6) continue;
+      if (/\d{3}[-.\s)]\d{3}|www\.|\.com|street|st\.|ave|road|rd\.|blvd|suite|receipt|welcome|store\s*#|tel|phone/i.test(l)) continue;
+      merchant = l.replace(/[^A-Za-z0-9&' .-]/g, '').trim();
+      if (merchant === merchant.toUpperCase()) merchant = merchant.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase());
+      break;
+    }
+    return { total: total != null ? round2(total) : null, items, date, merchant };
+  }
+
+  async function scanReceipt(file) {
+    const status = $('#scanStatus');
+    const say = (txt, cls) => { if (status) { status.textContent = txt; status.className = 'scan-status ' + (cls || ''); } };
+    say('Reading receipt…');
+    let text;
+    try {
+      await loadTesseract();
+      const canvas = await prepReceipt(file);
+      const worker = await Tesseract.createWorker('eng', 1, { langPath: TESS_LANG, logger: m => { if (m.status === 'recognizing text') say('Reading receipt… ' + Math.round(m.progress * 100) + '%'); } });
+      ({ data: { text } } = await worker.recognize(canvas));
+      await worker.terminate();
+    } catch (err) {
+      say('Couldn\'t load the scanner. Check your connection and try again.', 'neg');
+      return;
+    }
+    if (!modal.open || !$('#f-amount')) return;
+    const r = parseReceipt(text || '');
+    if (!r.total && !r.items.length) { say('Couldn\'t find prices. Try a flat, well-lit photo.', 'neg'); return; }
+    const exp = modal.querySelector('input[name=ttype][value="expense"]');
+    if (exp && !exp.checked) { exp.checked = true; exp.dispatchEvent(new Event('change', { bubbles: true })); }
+    if (r.total) $('#f-amount').value = r.total.toFixed(2);
+    if (r.date) $('#f-date').value = r.date;
+    if (r.merchant && !val('f-merchant')) {
+      // Reuse the spelling and category of a store you've logged before.
+      const key = r.merchant.toLowerCase();
+      const past = pastEntries(x => [[x.merchant]]).find(e => e.value.toLowerCase() === key || e.value.toLowerCase().startsWith(key.split(' ')[0]) && key.split(' ')[0].length > 3);
+      $('#f-merchant').value = past ? past.value : r.merchant;
+      const cat = $('#f-cat');
+      if (past && cat && Array.from(cat.options).some(o => o.value === past.last.categoryId)) cat.value = past.last.categoryId;
+    }
+    if (r.items.length) {
+      $('#itemRows').innerHTML = r.items.map(itemRow).join('');
+      $('#receiptBox').open = true;
+    }
+    updateItemsSum();
+    say('Filled in from your receipt' + (r.items.length ? ', ' + r.items.length + ' item' + (r.items.length === 1 ? '' : 's') : '') + '. Check it before saving.', 'pos');
+  }
+
   function pastEntries(pick) {
     const map = new Map();
     state.transactions.slice().sort((a, b) => a.date.localeCompare(b.date) || (a.created || 0) - (b.created || 0)).forEach(t => {
