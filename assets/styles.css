@@ -16,6 +16,7 @@
   --bar-inc: #bfd2c8;
   --shadow: 0 1px 2px rgba(28, 27, 24, 0.04);
   --radius: 12px;
+  --font: "Source Sans 3", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
 
@@ -42,10 +43,12 @@
 }
 
 * { box-sizing: border-box; }
+/* Source Sans runs small, so size the whole app up a touch. */
+html { font-size: 106.25%; }
 [hidden] { display: none !important; }
 body {
   margin: 0;
-  font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font);
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
@@ -64,7 +67,7 @@ svg { display: block; }
   display: flex; flex-direction: column; gap: 24px;
   padding: 24px 16px; background: var(--surface); border-right: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.02em; color: var(--text); padding: 0 8px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.01em; color: var(--text); padding: 0 8px; }
 .brand:hover { text-decoration: none; }
 .tabs { display: flex; flex-direction: column; gap: 2px; }
 .tabs a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: var(--muted); font-weight: 500; }
@@ -78,7 +81,7 @@ svg { display: block; }
 
 .main { padding: 24px 32px 48px; min-width: 0; }
 .topbar { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
-.topbar h1 { font-size: 1.6rem; letter-spacing: -0.03em; margin: 0; margin-right: auto; }
+.topbar h1 { font-size: 1.6rem; letter-spacing: -0.01em; margin: 0; margin-right: auto; }
 .month-picker { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; font-weight: 600; font-size: 0.9rem; }
 .month-picker span { min-width: 130px; text-align: center; }
 
@@ -100,7 +103,7 @@ svg { display: block; }
 /* Cards */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); min-width: 0; }
 .card + .card { margin-top: 16px; }
-.card h3 { margin: 0; font-size: 1rem; letter-spacing: -0.01em; }
+.card h3 { margin: 0; font-size: 1rem; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .small-link { font-size: 0.82rem; font-weight: 600; }
 .empty { text-align: center; padding: 48px 24px; }
@@ -112,7 +115,7 @@ svg { display: block; }
 .stats.three { grid-template-columns: repeat(3, 1fr); }
 .stats .card + .card { margin-top: 0; }
 .stat-label { margin: 0; color: var(--muted); font-size: 0.82rem; font-weight: 500; }
-.stat-value { margin: 4px 0 2px; font-size: 1.65rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.stat-value { margin: 4px 0 2px; font-size: 1.65rem; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .stat-sub { margin: 0; font-size: 0.8rem; color: var(--muted); }
 
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
@@ -304,7 +307,7 @@ dialog form { padding: 20px; max-height: calc(100vh - 48px); overflow-y: auto; }
 .calc-display { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; text-align: right; }
 .calc-display input { border: 0; background: transparent; padding: 0; text-align: right; font-size: 1.05rem; color: var(--muted); font-variant-numeric: tabular-nums; box-shadow: none; }
 .calc-display input:focus { box-shadow: none; }
-.calc-display output { display: block; font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; min-height: 2.4rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.calc-display output { display: block; font-size: 2rem; font-weight: 700; letter-spacing: -0.01em; min-height: 2.4rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .calc-display output.err { color: var(--neg); font-size: 1rem; font-weight: 600; padding-top: 10px; }
 .calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .calc-keys button { height: 48px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); font-size: 1.1rem; font-weight: 600; cursor: pointer; }
@@ -549,7 +552,7 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 .card-head h3, .stat-label { display: flex; align-items: center; gap: 6px; }
 .info { position: relative; flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border); color: var(--muted); font: italic 600 10px/1 Georgia, "Times New Roman", serif; cursor: help; user-select: none; }
 .info:hover, .info:focus-visible { color: var(--text); border-color: var(--muted); outline: none; }
-.info::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: -8px; z-index: 20; width: max-content; max-width: 260px; padding: 8px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font: 400 0.78rem/1.45 "Plus Jakarta Sans", system-ui, sans-serif; letter-spacing: 0; text-transform: none; white-space: normal; display: none; pointer-events: none; box-shadow: 0 8px 24px -10px rgba(0,0,0,.4); }
+.info::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: -8px; z-index: 20; width: max-content; max-width: 260px; padding: 8px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font: 400 0.78rem/1.45 var(--font); letter-spacing: 0; text-transform: none; white-space: normal; display: none; pointer-events: none; box-shadow: 0 8px 24px -10px rgba(0,0,0,.4); }
 .info:hover::after, .info:focus::after { display: block; }
 @media (max-width: 760px) { .info::after { max-width: min(260px, 70vw); } }
 .plan-actions { align-items: center; }
