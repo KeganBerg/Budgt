@@ -298,22 +298,25 @@
 
     html += '<div class="card"><div class="card-head"><h3>Top spending</h3><a href="#transactions" class="small-link">Details</a></div>' + topSpending(viewMonth) + '</div>';
 
-    html += '<div class="card span-2"><div class="card-head"><h3>Ways to cut back</h3><a href="#budget" class="small-link">Essentials</a></div>' + cutBackTips(viewMonth) + '</div>';
+    html += '<div class="card span-2"><div class="card-head"><h3>Ways to cut back' + info('Only Flexible categories get tips. Housing, groceries, transport and other essentials are left out. Change which categories are essential on the Budget page.') + '</h3></div>' + cutBackTips(viewMonth) + '</div>';
 
     html += '<div class="card span-2"><div class="card-head"><h3>Income vs spending</h3><div class="legend"><span class="lg lg-inc">Income</span><span class="lg lg-exp">Spending</span></div></div>' + barChart(viewMonth) + '</div>';
 
-    html += '<div class="card"><div class="card-head"><h3>Savings outlook</h3><a href="#goals" class="small-link">Goals</a></div>' + goalsOutlook(true) + '</div>';
+    html += '<div class="card card-fill"><div class="card-head"><h3>Savings outlook</h3><a href="#goals" class="small-link">Goals</a></div>' + goalsOutlook(true) + (state.goals.length <= 2 ? savingsSnapshot(viewMonth) : '') + '</div>';
 
-    html += '<div class="card span-2"><div class="card-head"><h3>Budget by category</h3><a href="#budget" class="small-link">Edit budget</a></div>' + categoryBars(viewMonth, 9) + '</div>';
+    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Budget by category' + info('Bubble size is what you spent. The dashed ring is the budget, so a bubble spilling past its ring is over. Drag bubbles around, or click one to see its purchases.') + '</h3><a href="#budget" class="small-link">Edit budget</a></div>' + bubbleChart(viewMonth) + '</div>';
 
     html += '<div class="card"><div class="card-head"><h3>Recent transactions</h3><a href="#transactions" class="small-link">See all</a></div>' + txnList(list.slice().sort(byDateDesc).slice(0, 6), true) + '</div>';
     html += '</div>';
     el.innerHTML = html;
     fitSpendingChart();
+    startBubbles();
   }
 
-  function statCard(label, value, sub, tone) {
-    return '<div class="card stat"><p class="stat-label">' + label + '</p><p class="stat-value">' + value + '</p><p class="stat-sub ' + (tone || '') + '">' + sub + '</p></div>';
+  // Small (i) marker: extra context lives in a hover/tap tooltip instead of a line of hint text.
+  function info(text) { return '<span class="info" tabindex="0" role="note" aria-label="' + esc(text) + '" data-tip="' + esc(text) + '">i</span>'; }
+  function statCard(label, value, sub, tone, note) {
+    return '<div class="card stat"><p class="stat-label">' + label + (note ? info(note) : '') + '</p><p class="stat-value' + (!sub && tone ? ' ' + tone : '') + '">' + value + '</p>' + (sub ? '<p class="stat-sub ' + (tone || '') + '">' + sub + '</p>' : '') + '</div>';
   }
 
   function upcomingBills() {
@@ -356,7 +359,7 @@
       const st = catStats(k, id);
       const diff = round2(st.total - st.prev);
       const trend = st.prev ? (diff > 0 ? '<span class="neg">▲ ' + money0(diff) + '</span>' : diff < 0 ? '<span class="pos">▼ ' + money0(-diff) + '</span>' : '<span class="muted">Same</span>') + ' vs last month' : '<span class="muted">New this month</span>';
-      return '<li><span class="tc-rank">' + (i + 1) + '</span><div class="tc-body"><div class="tc-line"><button type="button" class="tc-name spent-link" data-act="view-cat" data-id="' + id + '" title="See these transactions">' + esc(c.name) + '</button><span class="tag' + (isEssential(c) ? '' : ' tag-flex') + '">' + (isEssential(c) ? 'Essential' : 'Flexible') + '</span><b class="tc-amt">' + money0(spent[id]) + '</b></div>' +
+      return '<li><span class="tc-rank">' + (i + 1) + '</span><div class="tc-body"><div class="tc-line"><button type="button" class="tc-name spent-link" data-act="view-cat" data-id="' + id + '" title="See these transactions">' + esc(c.name) + '</button><b class="tc-amt">' + money0(spent[id]) + '</b></div>' +
         '<span class="tc-bar"><i style="width:' + (spent[id] / max * 100).toFixed(1) + '%;background:' + catColor(id) + '"></i></span>' +
         '<small class="muted">' + Math.round(spent[id] / total * 100) + '% of spending · ' + trend + '</small></div></li>';
     }).join('') + '</ol>';
@@ -412,10 +415,10 @@
       };
       if (c.budget && st.total > c.budget) tip.ideas.unshift('You\'re ' + money0(st.total - c.budget) + ' over your ' + money0(c.budget) + ' budget here.');
       totalSave += tip.save;
-      return '<li class="tip"><div class="tip-head"><span class="dot" style="background:' + catColor(c.id) + '"></span><b>' + esc(c.name) + '</b><span class="tip-save">Save ~' + money0(tip.save) + '/mo</span></div><p>' + esc(tip.headline) + '</p><ul class="tip-ideas">' + tip.ideas.slice(0, 3).map(i => '<li>' + esc(i) + '</li>').join('') + '</ul></li>';
+      return '<li class="tip"><div class="tip-head"><span class="dot" style="background:' + catColor(c.id) + '"></span><b>' + esc(c.name) + '</b><span class="tip-save">Save ~' + money0(tip.save) + '/mo</span></div><p>' + esc(tip.headline) + '</p><ul class="tip-ideas">' + tip.ideas.slice(0, 2).map(i => '<li>' + esc(i) + '</li>').join('') + '</ul></li>';
     });
     const goal = state.goals.find(g => g.saved < g.target);
-    const lead = '<p class="tip-lead">Cutting back here could free up about <b>' + money0(totalSave) + ' a month</b>' + (goal ? ' for your ' + esc(goal.name) : '') + '. Housing, groceries, transport and other essentials are left out.</p>';
+    const lead = '<p class="tip-lead">Cutting back here could free up about <b>' + money0(totalSave) + ' a month</b>' + (goal ? ' for your ' + esc(goal.name) : '') + '.</p>';
     return lead + '<ul class="tips">' + cards.join('') + '</ul>';
   }
 
@@ -430,6 +433,164 @@
       const over = c.budget && s > c.budget;
       return '<li><span class="dot" style="background:' + catColor(c.id) + '"></span><button type="button" class="cb-name spent-link" data-act="view-cat" data-id="' + c.id + '" title="See these transactions">' + esc(c.name) + '</button><span class="cb-bar"><i style="width:' + Math.min(100, pct * 100).toFixed(1) + '%;background:' + (over ? 'var(--neg)' : catColor(c.id)) + '"></i></span><span class="cb-amt' + (over ? ' neg' : '') + '">' + money0(s) + (c.budget ? '<small> / ' + money0(c.budget) + '</small>' : '') + '</span></li>';
     }).join('') + '</ul>';
+  }
+
+  // ---------- budget bubbles ----------
+  // Each category is a bubble whose area is what was spent this month. A dashed ring shows the budget,
+  // so a bubble spilling past its ring is over budget. Bubbles settle with a small physics loop and can be dragged.
+  let bubbleData = null, bubbleRaf = 0;
+  function bubbleChart(k) {
+    const spent = spentByCat(k);
+    const cats = state.categories.map(c => ({ c, s: spent[c.id] || 0 })).filter(x => x.c.budget > 0 || x.s > 0).sort((a, b) => b.s - a.s);
+    if (!cats.length) { bubbleData = null; return '<p class="muted">Set monthly limits on the <a href="#budget">Budget</a> page to track them here.</p>'; }
+    const live = cats.filter(x => x.s > 0), idle = cats.filter(x => !(x.s > 0));
+    bubbleData = live;
+    return '<div class="bubbles"><div class="bubble-stage" id="bubbleStage" role="img" aria-label="Spending by category as bubbles, largest first: ' + esc(live.map(x => x.c.name + ' ' + money0(x.s)).join(', ')) + '">' +
+      (live.length ? '<svg id="bubbleSvg"></svg><div class="bubble-tip" id="bubbleTip" hidden></div>' : '<p class="muted">No spending yet this month.</p>') + '</div>' +
+      '<div class="bubble-side"><ol class="bubble-rank">' + live.map((x, i) => {
+        const over = x.c.budget > 0 && x.s > x.c.budget;
+        return '<li data-bid="' + x.c.id + '"><button type="button" data-act="view-cat" data-id="' + x.c.id + '"><span class="dot" style="background:' + catColor(x.c.id) + '"></span><span class="br-name">' + esc(x.c.name) + '</span><span class="br-amt' + (over ? ' neg' : '') + '">' + money0(x.s) + (x.c.budget ? '<small> / ' + money0(x.c.budget) + '</small>' : '') + '</span></button></li>';
+      }).join('') + '</ol>' +
+      (idle.length ? '<p class="muted small bubble-idle">Nothing spent yet: ' + esc(idle.map(x => x.c.name).join(', ')) + '</p>' : '') +
+      '</div></div>';
+  }
+
+  function startBubbles() {
+    cancelAnimationFrame(bubbleRaf);
+    const stage = document.getElementById('bubbleStage'), svg = document.getElementById('bubbleSvg'), tip = document.getElementById('bubbleTip');
+    if (!stage || !svg || !bubbleData || !bubbleData.length) return;
+    const W = stage.clientWidth, H = stage.clientHeight;
+    if (!W || !H) return;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    const total = bubbleData.reduce((a, x) => a + Math.max(x.s, x.c.budget || 0), 0);
+    // Scale so the bubbles (or their budget rings, whichever is bigger) cover about half the stage.
+    let k = Math.sqrt(0.34 * W * H / (Math.PI * total));
+    const biggest = Math.max(...bubbleData.map(x => Math.max(x.s, x.c.budget || 0)));
+    k = Math.min(k, (Math.min(W, H) / 2 - 6) / Math.sqrt(biggest));
+    const cx = W / 2, cy = H / 2;
+    const nodes = bubbleData.map((x, i) => {
+      const a = i * 2.4, d = 12 * Math.sqrt(i);
+      return { id: x.c.id, name: x.c.name, s: x.s, budget: x.c.budget || 0, color: catColor(x.c.id), r: Math.max(6, Math.sqrt(x.s) * k), rb: x.c.budget ? Math.sqrt(x.c.budget) * k : 0,
+        x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, vx: 0, vy: 0 };
+    });
+    const reach = n => Math.max(n.r, n.rb);
+    svg.innerHTML = nodes.map((n, i) => {
+      const over = n.budget && n.s > n.budget;
+      const label = n.r >= 30;
+      return '<g class="bubble' + (over ? ' over' : '') + '" data-i="' + i + '" tabindex="0" role="button" aria-label="' + esc(n.name + ', ' + money0(n.s) + (n.budget ? ' of ' + money0(n.budget) : '')) + '">' +
+        (n.rb ? '<circle class="b-ring" r="' + n.rb.toFixed(1) + '"/>' : '') +
+        '<circle class="b-fill" r="' + n.r.toFixed(1) + '" style="--c:' + n.color + '"/>' +
+        (label ? '<text class="b-name" y="-4" style="font-size:' + Math.min(15, n.r / 3.6).toFixed(1) + 'px">' + esc(n.name.length > 12 && n.r < 50 ? n.name.slice(0, 11) + '…' : n.name) + '</text><text class="b-amt" y="' + (Math.min(15, n.r / 3.6) + 2).toFixed(1) + '" style="font-size:' + Math.min(14, n.r / 4).toFixed(1) + 'px">' + money0(n.s) + '</text>' : '') + '</g>';
+    }).join('');
+    const els = Array.from(svg.querySelectorAll('.bubble'));
+    let drag = null, heat = 1;
+    const tick = () => {
+      for (const n of nodes) {
+        if (n === (drag && drag.n)) continue;
+        n.vx += (cx - n.x) * 0.012; n.vy += (cy - n.y) * 0.012 * (W / H);
+      }
+      for (let pass = 0; pass < 3; pass++) for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        let dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 0.01;
+        const min = reach(a) + reach(b) + 3;
+        if (d < min) {
+          const push = (min - d) / d * 0.5; dx *= push; dy *= push;
+          const fa = drag && drag.n === a ? 0 : 1, fb = drag && drag.n === b ? 0 : 1, t = fa + fb || 1;
+          a.x -= dx * fa / t * 2 * 0.5; a.y -= dy * fa / t * 2 * 0.5; b.x += dx * fb / t * 2 * 0.5; b.y += dy * fb / t * 2 * 0.5;
+        }
+      }
+      let energy = 0;
+      for (const n of nodes) {
+        if (n === (drag && drag.n)) continue;
+        n.vx *= 0.82; n.vy *= 0.82; n.x += n.vx; n.y += n.vy;
+        const m = reach(n) + 2;
+        n.x = Math.min(W - m, Math.max(m, n.x)); n.y = Math.min(H - m, Math.max(m, n.y));
+        energy += n.vx * n.vx + n.vy * n.vy;
+      }
+      nodes.forEach((n, i) => els[i].setAttribute('transform', 'translate(' + n.x.toFixed(1) + ' ' + n.y.toFixed(1) + ')'));
+      heat = drag ? 1 : heat * 0.995;
+      if (drag || energy > 0.01 || heat > 0.3) bubbleRaf = requestAnimationFrame(tick);
+    };
+    const wake = () => { heat = 1; cancelAnimationFrame(bubbleRaf); bubbleRaf = requestAnimationFrame(tick); };
+    const rank = document.querySelectorAll('.bubble-rank li');
+    const show = (i, on) => {
+      els.forEach((e, j) => e.classList.toggle('dim', on && j !== i));
+      rank.forEach(li => li.classList.toggle('hot', on && li.dataset.bid === nodes[i].id));
+      if (!on) { tip.hidden = true; return; }
+      const n = nodes[i];
+      const over = n.budget && n.s > n.budget;
+      tip.innerHTML = '<b>' + esc(n.name) + '</b><span>' + money(n.s) + (n.budget ? ' of ' + money0(n.budget) : '') + '</span>' +
+        (n.budget ? '<span class="' + (over ? 'neg' : 'pos') + '">' + (over ? money0(n.s - n.budget) + ' over budget' : money0(n.budget - n.s) + ' left') + '</span>' : '<span class="muted">No budget set</span>');
+      tip.hidden = false;
+      const tx = Math.min(W - 170, Math.max(4, n.x + reach(n) * 0.7)), ty = Math.max(4, n.y - reach(n) * 0.7 - 20);
+      tip.style.transform = 'translate(' + tx + 'px,' + ty + 'px)';
+    };
+    const pt = e => { const r = svg.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; };
+    els.forEach((el, i) => {
+      el.addEventListener('pointerenter', () => { if (!drag) show(i, true); });
+      el.addEventListener('pointerleave', () => { if (!drag) show(i, false); });
+      el.addEventListener('focus', () => show(i, true));
+      el.addEventListener('blur', () => show(i, false));
+      el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCategory(nodes[i].id); } });
+      el.addEventListener('pointerdown', e => {
+        const p = pt(e); drag = { n: nodes[i], dx: nodes[i].x - p.x, dy: nodes[i].y - p.y, moved: 0, i };
+        el.setPointerCapture(e.pointerId); el.classList.add('grab'); wake();
+      });
+      el.addEventListener('pointermove', e => {
+        if (!drag || drag.i !== i) return;
+        const p = pt(e), n = drag.n, nx = p.x + drag.dx, ny = p.y + drag.dy;
+        drag.moved += Math.hypot(nx - n.x, ny - n.y);
+        const m = reach(n) + 2;
+        n.x = Math.min(W - m, Math.max(m, nx)); n.y = Math.min(H - m, Math.max(m, ny)); n.vx = n.vy = 0;
+        show(i, true);
+      });
+      const end = () => {
+        if (!drag || drag.i !== i) return;
+        const click = drag.moved < 4;
+        drag = null; el.classList.remove('grab'); wake();
+        if (click) openCategory(nodes[i].id);
+      };
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', () => { drag = null; el.classList.remove('grab'); wake(); });
+    });
+    rank.forEach(li => {
+      const i = nodes.findIndex(n => n.id === li.dataset.bid);
+      li.addEventListener('pointerenter', () => show(i, true));
+      li.addEventListener('pointerleave', () => show(i, false));
+    });
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { for (let s = 0; s < 400; s++) { heat = 1; tick(); cancelAnimationFrame(bubbleRaf); } }
+    else bubbleRaf = requestAnimationFrame(tick);
+  }
+  function openCategory(id) { txnFilter = { q: '', cat: id }; location.hash = '#transactions'; window.scrollTo(0, 0); }
+
+  // Fills the savings card when there are only a goal or two: 6-month net savings, savings rate, and the next safety-net milestone.
+  function savingsSnapshot(k) {
+    const months = [];
+    for (let i = 5; i >= 0; i--) { const m = shiftMonth(k, -i), l = txnsIn(m); months.push({ m, has: l.length > 0, inc: sumBy(l, 'income'), net: sumBy(l, 'income') - sumBy(l, 'expense') }); }
+    const used = months.filter(x => x.has);
+    if (!used.length) return '';
+    const max = Math.max(1, ...used.map(x => Math.abs(x.net)));
+    const incSum = used.reduce((a, x) => a + x.inc, 0), netSum = used.reduce((a, x) => a + x.net, 0);
+    const rate = incSum > 0 ? netSum / incSum : 0;
+    const cur = months[5];
+    const bars = months.map(x => {
+      const h = x.has ? Math.max(3, Math.abs(x.net) / max * 100) : 0;
+      return '<div class="ss-col" title="' + esc(monthName(x.m, { month: 'long' })) + ': ' + (x.has ? (x.net >= 0 ? 'saved ' : 'overspent ') + money0(Math.abs(x.net)) : 'no data') + '"><div class="ss-half up">' + (x.has && x.net >= 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><div class="ss-half down">' + (x.has && x.net < 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><span>' + esc(monthName(x.m, { month: 'short' })) + '</span></div>';
+    }).join('');
+    // Safety-net milestones (Vanguard): a $2,000 starter cushion, then 3 months of essential costs.
+    const saved = state.goals.reduce((a, g) => a + g.saved, 0);
+    const { avg } = catAverages();
+    const needs = state.categories.filter(isEssential).reduce((a, c) => a + (avg[c.id] || c.budget || 0), 0);
+    const cushion = Math.max(2000, Math.round(needs * 3 / 50) * 50);
+    const target = saved < 2000 ? 2000 : cushion;
+    const label = saved < 2000 ? '$2,000 starter cushion' : '3 months of essentials';
+    const done = saved >= cushion;
+    const anyNeg = used.some(x => x.net < 0);
+    return '<div class="savings-snap' + (anyNeg ? '' : ' no-neg') + '"><div class="ss-stats"><div><span>' + (cur.has ? 'Net this month' : 'Avg net per month') + '</span><b class="' + ((cur.has ? cur.net : netSum / used.length) >= 0 ? 'pos' : 'neg') + '">' + ((cur.has ? cur.net : netSum / used.length) < 0 ? '−' : '+') + money0(Math.abs(cur.has ? cur.net : netSum / used.length)) + '</b></div>' +
+      '<div><span>Savings rate</span><b class="' + (rate >= 0 ? '' : 'neg') + '">' + Math.round(rate * 100) + '%</b><small>of income, last ' + used.length + ' mo</small></div></div>' +
+      '<div class="ss-chart" aria-hidden="true">' + bars + '</div>' +
+      '<div class="ss-mile"><div class="ss-mile-top"><span>' + (done ? '3-month safety net reached' : 'Next: ' + label) + '</span><b>' + money0(Math.min(saved, target)) + ' / ' + money0(target) + '</b></div><div class="ss-track"><i style="width:' + Math.min(100, saved / target * 100).toFixed(1) + '%"></i></div>' +
+      (done ? '' : '<small class="muted">' + money0(target - saved) + ' to go' + (netSum / used.length > 0 ? ', about ' + Math.max(1, Math.ceil((target - saved) / (netSum / used.length))) + ' months at your usual pace' : '') + '</small>') + '</div></div>';
   }
 
   function goalsOutlook(compact) {
@@ -519,7 +680,7 @@
     let html = '<div class="stats three">' + statCard('Monthly budget', money(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
       statCard('Spent', money(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
       statCard('Remaining', money(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
-    html += '<div class="card"><div class="card-head"><h3>Categories</h3><button class="btn btn-ghost btn-sm" data-act="add-cat">+ Category</button></div><p class="muted small">Type a monthly limit for each category. Tap Essential or Flexible to choose which ones get cut-back tips.</p><ul class="budget-rows">';
+    html += '<div class="card"><div class="card-head"><h3>Categories' + info('Type a monthly limit for each category. Tap Essential or Flexible to choose which ones get cut-back tips.') + '</h3><button class="btn btn-ghost btn-sm" data-act="add-cat">+ Category</button></div><ul class="budget-rows">';
     html += state.categories.map(c => {
       const s = spent[c.id] || 0;
       const pct = c.budget ? s / c.budget : 0;
@@ -552,7 +713,7 @@
     const debtTotal = debts.reduce((a, l) => a + (l.balance || 0), 0);
     let html = '<div class="stats three">' + statCard('Monthly bills and payments', money(monthly), state.liabilities.length + ' total', '') +
       statCard('Total debt', money(debtTotal), debts.length + ' accounts', '') +
-      statCard('Debt-free by', debtFreeDate(debts), 'Paying the minimums', '') + '</div>';
+      statCard('Debt-free by', debtFreeDate(debts), '', '', 'If you keep paying just the minimums') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Debts</h3><button class="btn btn-ghost btn-sm" data-act="add-liab" data-type="debt">+ Debt</button></div>';
     html += debts.length ? '<ul class="liabs">' + debts.map(l => {
       const m = payoffMonths(l.balance, l.apr, l.payment);
@@ -576,7 +737,7 @@
     const el = $('#view-goals');
     const avg = avgMonthlySavings();
     let html = '<div class="stats three">' + statCard('Saved toward goals', money(state.goals.reduce((a, g) => a + g.saved, 0)), 'of ' + money0(state.goals.reduce((a, g) => a + g.target, 0)) + ' total', '') +
-      statCard('Your savings rate', money0(avg) + '/mo', 'Average income minus spending, recent months', avg >= 0 ? 'pos' : 'neg') +
+      statCard('Your savings rate', (avg < 0 ? '−' : '') + money0(Math.abs(avg)) + '/mo', '', avg >= 0 ? 'pos' : 'neg', 'Average income minus spending over your recent months') +
       statCard('Goals', String(state.goals.length), state.goals.filter(g => g.saved >= g.target).length + ' reached', '') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Your goals</h3><button class="btn btn-ghost btn-sm" data-act="add-goal">+ Goal</button></div>';
     if (!state.goals.length) html += '<p class="muted">Emergency fund, vacation, down payment: add a goal and Budgt will show when you\'ll get there.</p>';
@@ -769,8 +930,8 @@
       const s2 = reach(plan, 2000), s3 = reach(plan, cushion);
       facts.push(['3-month safety net', s3 < 0 ? 'Not within a year' : s3 === 0 ? 'Reached' : 'Reached ' + monthsFromNow(s3), money0(cushion) + ' of needs. $2,000 starter: ' + when(s2)]);
     }
-    return '<div class="card-head"><h3>12-month outlook</h3><div class="legend"><span class="lg lg-cur">' + esc(r.plan.name) + '</span><span class="lg lg-prev">Current habits</span></div></div>' +
-      '<p class="muted small">Net worth: your savings minus what you owe, month by month, including interest on debts.</p>' + svg +
+    return '<div class="card-head"><h3>12-month outlook' + info('Net worth: your savings minus what you owe, month by month, including interest on debts.') + '</h3><div class="legend"><span class="lg lg-cur">' + esc(r.plan.name) + '</span><span class="lg lg-prev">Current habits</span></div></div>' +
+      svg +
       '<div class="outlook-facts">' + facts.map(([l, v, s]) => '<div><span>' + esc(l) + '</span><b>' + esc(v) + '</b><small>' + esc(s) + '</small></div>').join('') + '</div>';
   }
 
@@ -795,8 +956,8 @@
 
     const pct = v => Math.round(v / I * 100);
     const seg = (cls, v, label) => v > 0 ? '<i class="' + cls + '" style="width:' + Math.min(100, v / I * 100).toFixed(1) + '%" title="' + esc(label) + '"></i>' : '';
-    html += '<div class="plan-detail"><div class="card"><div class="card-head"><h3>' + esc(r.plan.name) + '</h3><span class="muted small">Best for: ' + esc(r.plan.bestFor) + '</span></div>' +
-      '<p class="plan-about">' + esc(r.plan.about) + '</p><p class="muted small">Source: ' + esc(r.plan.source) + '</p>' +
+    html += '<div class="plan-detail"><div class="card"><div class="card-head"><h3>' + esc(r.plan.name) + info('Source: ' + r.plan.source) + '</h3><span class="muted small">Best for: ' + esc(r.plan.bestFor) + '</span></div>' +
+      '<p class="plan-about">' + esc(r.plan.about) + '</p>' +
       '<div class="split-bar">' + seg('sb-needs', r.needs, 'Needs') + seg('sb-wants', r.wants, 'Wants') + seg('sb-save', r.savings, 'Savings') + seg('sb-debt', r.extraDebt, 'Extra debt') + '</div>' +
       '<div class="split-legend"><span><i class="sb-needs"></i>Needs ' + money0(r.needs) + ' · ' + pct(r.needs) + '%</span><span><i class="sb-wants"></i>Wants ' + money0(r.wants) + ' · ' + pct(r.wants) + '%</span><span><i class="sb-save"></i>Savings ' + money0(r.savings) + ' · ' + pct(r.savings) + '%</span>' + (r.extraDebt ? '<span><i class="sb-debt"></i>Extra debt ' + money0(r.extraDebt) + ' · ' + pct(r.extraDebt) + '%</span>' : '') + '</div>' +
       (r.notes.length ? '<ul class="plan-notes">' + r.notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '') +
@@ -808,7 +969,7 @@
       (r.plan.buckets && r.savings > 0 ? r.plan.buckets.map(b => '<tr class="sub-row"><td>' + esc(b) + '</td><td></td><td>' + money0(r5(r.savings / r.plan.buckets.length)) + '</td></tr>').join('') : '') +
       (r.extraDebt ? '<tr class="save-row"><td>Extra debt payments (highest interest first)</td><td>' + money0(0) + '</td><td>' + money0(r.extraDebt) + '</td></tr>' : '') +
       '</tbody></table>' +
-      '<div class="row-actions plan-actions"><button type="button" class="btn" data-act="apply-plan" data-id="' + r.plan.id + '">' + (active === r.plan.id ? 'Re-apply ' : 'Use ') + esc(r.plan.name) + '</button><span class="muted small">Sets your Flexible category budgets. Essentials keep their current amounts.</span></div></div>' +
+      '<div class="row-actions plan-actions"><button type="button" class="btn" data-act="apply-plan" data-id="' + r.plan.id + '">' + (active === r.plan.id ? 'Re-apply ' : 'Use ') + esc(r.plan.name) + '</button>' + info('Sets your Flexible category budgets. Essentials keep their current amounts.') + '</div></div>' +
       '<div class="card">' + outlookChart(r) + '</div></div></div>' + planGuide();
     el.innerHTML = html;
   }
@@ -915,8 +1076,7 @@
   function renderPatterns(el) {
     const pats = findPatterns();
     const alerts = pats.filter(p => p.level !== 'low');
-    let html = '<div class="card"><div class="card-head"><h3>Spending patterns</h3><span class="muted small">Last 3 months · Flexible categories only</span></div>' +
-      '<p class="muted small">Budgt looks for purchases that keep coming back, by store, by words in your notes, and by receipt items, including anything filed under Other. Essential categories are never flagged.</p>';
+    let html = '<div class="card"><div class="card-head"><h3>Spending patterns' + info('Budgt checks the last 3 months of Flexible spending for purchases that keep coming back, by store, by words in your notes and by receipt items, including anything filed under Other. Essential categories are never flagged.') + '</h3></div>';
     if (!pats.length) html += '<p class="muted">No repeating non-essential purchases yet. Patterns show up once something repeats 3 or more times.</p>';
     html += alerts.map(g => {
       const m = patternMessage(g);
