@@ -616,22 +616,23 @@
   }
 
   const PLANS = [
-    { id: '50-30-20', name: '50/30/20', tagline: '50% needs · 30% wants · 20% savings', needs: 0.5, wants: 0.3, save: 0.2,
+    { id: '50-30-20', split: '50% needs, 30% wants, 20% savings and extra debt payments', name: '50/30/20', tagline: '50% needs · 30% wants · 20% savings', needs: 0.5, wants: 0.3, save: 0.2,
       about: 'The most widely used split. Needs (including minimum debt payments) stay under half your take-home pay, wants get 30%, and 20% goes to savings and extra debt payments.',
       source: 'Elizabeth Warren & Amelia Warren Tyagi, All Your Worth (2005)', bestFor: 'A balanced starting point' },
-    { id: '70-20-10', name: '70/20/10', tagline: '70% living · 20% savings · 10% debt', living: 0.7, save: 0.2, debt: 0.1,
+    { id: '70-20-10', split: '70% living costs, 20% savings, 10% extra debt or giving', name: '70/20/10', tagline: '70% living · 20% savings · 10% debt', living: 0.7, save: 0.2, debt: 0.1,
       about: 'Everything you live on, needs and wants together, fits in 70%. 20% is saved and 10% goes to paying down debt faster (or to giving once you\'re debt-free).',
       source: 'Common financial-planner rule of thumb', bestFor: 'Paying off debt while still saving' },
-    { id: '60-solution', name: '60% solution', tagline: '60% committed · 30% saved · 10% fun', needs: 0.6, wants: 0.1, save: 0.3,
+    { id: '60-solution', split: '60% committed; 10% retirement, 10% long-term, 10% irregular, 10% fun', name: '60% solution', tagline: '60% committed · 30% saved · 10% fun', needs: 0.6, wants: 0.1, save: 0.3,
       about: 'Committed costs stay at 60%. The rest is split into 10% retirement, 10% long-term savings, 10% for irregular costs like gifts and car repairs, and a guilt-free 10% for fun.',
-      source: 'Richard Jenkins, MSN Money (2006)', bestFor: 'Building savings fast' },
-    { id: 'pay-first', name: 'Pay yourself first', tagline: 'Save 20% first · spend the rest freely', living: 0.8, save: 0.2,
+      source: 'Richard Jenkins, MSN Money (2006)', bestFor: 'Building savings fast',
+      buckets: ['Retirement', 'Long-term savings', 'Irregular costs (gifts, repairs)'] },
+    { id: 'pay-first', split: '20% saved first, spend the other 80% freely', name: 'Pay yourself first', tagline: 'Save 20% first · spend the rest freely', living: 0.8, save: 0.2,
       about: 'Move 20% to savings the day you\'re paid, then spend what\'s left without tracking every category. The CFPB finds automatic, up-front saving is one of the most reliable ways to save.',
       source: 'Classic "pay yourself first" rule; CFPB evidence review (2020)', bestFor: 'People who hate tracking categories' },
-    { id: 'zero-based', name: 'Zero-based', tagline: 'Every dollar gets a job', zero: true,
+    { id: 'zero-based', split: 'Needs, then goals, then wants; the rest is saved', name: 'Zero-based', tagline: 'Every dollar gets a job', zero: true,
       about: 'Income minus needs, minus what your goals need each month, minus wants equals zero. Wants are held to what you actually spend, and anything left over goes to savings.',
       source: 'Popularised by Dave Ramsey and YNAB', bestFor: 'Hitting specific goals on time' },
-    { id: 'envelope', name: 'Envelope', tagline: 'Hard caps 10% below your usual spending', envelope: true,
+    { id: 'envelope', split: 'Flexible categories capped at 90% of your usual spending', name: 'Envelope', tagline: 'Hard caps 10% below your usual spending', envelope: true,
       about: 'Each flexible category gets a fixed "envelope" 10% smaller than what you usually spend. When it\'s empty, you stop. Everything you don\'t spend is saved.',
       source: 'Cash-envelope system', bestFor: 'Reining in overspending' },
   ];
@@ -681,7 +682,7 @@
       const over = N - I * plan.needs;
       if (over > 0) { W -= over; notes.push('Your essentials are ' + Math.round(N / Math.max(1, I) * 100) + '% of income, above this plan\'s ' + Math.round(plan.needs * 100) + '%. The difference comes out of wants first; essentials are not cut.'); }
     }
-    if (W < 0) { S += W; X = Math.max(0, X + Math.min(0, S)); W = 0; }
+    if (W < 0) { S += W; X = Math.max(0, X + Math.min(0, S)); if (S > 0) notes.push('Your needs are more than this plan\'s share of income, so wants are set to $0 and savings shrink by ' + money0(-W) + ' to cover the rest. Essentials are not cut.'); W = 0; }
     // Keep wants realistic: never more than 10% above what you actually spend; the surplus is saved instead.
     const cap = flexAvg > 0 ? flexAvg * 1.1 : W;
     if (!plan.zero && W > cap) { S += W - cap; if (flexAvg > 0) notes.push('You spend less on wants than this plan allows, so the extra ' + money0(W - cap) + '/mo goes to savings.'); W = cap; }
@@ -760,6 +761,14 @@
       const hp = hit(plan), hc = hit(cur);
       facts.push([goal.name, hp >= 0 ? (hp === 0 ? 'Reached' : 'Reached ' + monthsFromNow(hp)) : 'Not within a year', hc >= 0 ? 'Current habits: ' + (hc === 0 ? 'reached' : monthsFromNow(hc)) : 'Current habits: not within a year']);
     }
+    // Vanguard: a $2,000 cushion, then 3 to 6 months of expenses, are the savings levels linked to less money stress.
+    const cushion = r5(r.needs * 3);
+    const reach = (pts, amt) => { for (let i = 0; i < pts.length; i++) if (pts[i].savings >= amt) return i; return -1; };
+    const when = i => i < 0 ? 'not within a year' : i === 0 ? 'reached' : monthsFromNow(i);
+    if (cushion > 0) {
+      const s2 = reach(plan, 2000), s3 = reach(plan, cushion);
+      facts.push(['3-month safety net', s3 < 0 ? 'Not within a year' : s3 === 0 ? 'Reached' : 'Reached ' + monthsFromNow(s3), money0(cushion) + ' of needs. $2,000 starter: ' + when(s2)]);
+    }
     return '<div class="card-head"><h3>12-month outlook</h3><div class="legend"><span class="lg lg-cur">' + esc(r.plan.name) + '</span><span class="lg lg-prev">Current habits</span></div></div>' +
       '<p class="muted small">Net worth: your savings minus what you owe, month by month, including interest on debts.</p>' + svg +
       '<div class="outlook-facts">' + facts.map(([l, v, s]) => '<div><span>' + esc(l) + '</span><b>' + esc(v) + '</b><small>' + esc(s) + '</small></div>').join('') + '</div>';
@@ -796,11 +805,35 @@
       (r.debtMin ? '<tr class="locked"><td>Minimum debt payments <span class="tag">locked</span></td><td>' + money0(r.debtMin) + '</td><td>' + money0(r.debtMin) + '</td></tr>' : '') +
       r.alloc.map(a => { const d = a.planned - a.avg; return '<tr><td>' + esc(a.c.name) + ' <span class="tag tag-flex">Flexible</span></td><td>' + money0(a.avg) + '</td><td>' + money0(a.planned) + (Math.abs(d) >= 5 ? ' <small class="' + (d < 0 ? 'warn' : 'pos') + '">' + (d < 0 ? '−' : '+') + money0(Math.abs(d)) + '</small>' : '') + '</td></tr>'; }).join('') +
       '<tr class="save-row"><td>Savings</td><td>' + money0(Math.max(0, currentMonthlySave())) + '</td><td>' + money0(r.savings) + '</td></tr>' +
+      (r.plan.buckets && r.savings > 0 ? r.plan.buckets.map(b => '<tr class="sub-row"><td>' + esc(b) + '</td><td></td><td>' + money0(r5(r.savings / r.plan.buckets.length)) + '</td></tr>').join('') : '') +
       (r.extraDebt ? '<tr class="save-row"><td>Extra debt payments (highest interest first)</td><td>' + money0(0) + '</td><td>' + money0(r.extraDebt) + '</td></tr>' : '') +
       '</tbody></table>' +
       '<div class="row-actions plan-actions"><button type="button" class="btn" data-act="apply-plan" data-id="' + r.plan.id + '">' + (active === r.plan.id ? 'Re-apply ' : 'Use ') + esc(r.plan.name) + '</button><span class="muted small">Sets your Flexible category budgets. Essentials keep their current amounts.</span></div></div>' +
-      '<div class="card">' + outlookChart(r) + '</div></div></div>';
+      '<div class="card">' + outlookChart(r) + '</div></div></div>' + planGuide();
     el.innerHTML = html;
+  }
+
+  const SOURCES = {
+    bankrate: 'https://www.bankrate.com/personal-finance/what-is-the-50-30-20-rule',
+    cfpb: 'https://www.consumerfinance.gov/archive/blog/report-synthesizes-evidence-based-strategies-build-emergency-savings/',
+    vanguard: 'https://corporate.vanguard.com/content/dam/corp/research/pdf/relationship_between_emergency_savings_financial_well_being_financial_stress.pdf',
+  };
+  const ext = (href, text) => '<a href="' + href + '" target="_blank" rel="noopener">' + esc(text) + '</a>';
+
+  function planGuide() {
+    return '<details class="card guide"><summary><span>How these plans work</span><small class="muted">Methods, sources and how Budgt uses your data</small></summary>' +
+      '<div class="guide-body"><div class="table-wrap"><table class="plan-table guide-table"><thead><tr><th>Plan</th><th>Split</th><th>Origin</th><th>Best for</th></tr></thead><tbody>' +
+      PLANS.map(p => '<tr><td><b>' + esc(p.name) + '</b></td><td>' + esc(p.split) + '</td><td>' + esc(p.source) + '</td><td>' + esc(p.bestFor) + '</td></tr>').join('') + '</tbody></table></div>' +
+      '<div class="guide-cols"><div><h4>How Budgt builds a plan</h4><ol>' +
+      '<li>Income is what you enter above, or the average income you\'ve logged recently.</li>' +
+      '<li>Needs are your Essential categories plus minimum debt payments. Essentials are locked and never cut.</li>' +
+      '<li>The plan sizes savings and wants. If needs go over the plan\'s share, wants shrink first, then savings, and the plan tells you.</li>' +
+      '<li>Wants are split across Flexible categories by your last 3 months of spending, and never set more than 10% above what you actually spend. The surplus is saved.</li>' +
+      '<li>The outlook simulates 12 months of savings and debt, with interest and minimum payments. Extra debt money goes to the highest-interest debt first.</li></ol></div>' +
+      '<div><h4>Why this works</h4><ul>' +
+      '<li>Minimum debt payments are needs; anything above the minimum counts as saving (' + ext(SOURCES.bankrate, 'Bankrate') + ').</li>' +
+      '<li>Saving first, automatically, with a clear number to aim for is what reliably builds savings (' + ext(SOURCES.cfpb, 'CFPB') + '). That\'s why each plan shows a monthly savings amount and Budgt flags costly habits.</li>' +
+      '<li>$2,000 of emergency savings is linked to 21% higher financial well-being, and 3 to 6 months of expenses adds another 13% (' + ext(SOURCES.vanguard, 'Vanguard, 2025') + '). The outlook shows when you\'ll reach both.</li></ul></div></div></div></details>';
   }
 
   function applyPlan(id) {
@@ -894,7 +927,11 @@
     }).join('');
     const minor = pats.filter(p => p.level === 'low');
     if (minor.length) html += '<h4 class="minor-head">Other repeat purchases</h4><ul class="minor-list">' + minor.map(g => '<li><span>' + esc(g.label) + (g.topMerchant && g.kind !== 'merchant' ? ' · ' + esc(g.topMerchant) : '') + '</span><span class="muted">' + g.txns.size + '× · ' + money0(g.monthly) + '/mo</span></li>').join('') + '</ul>';
-    html += '</div>';
+    html += '<details class="guide guide-inline"><summary><span>How alerts work</span></summary><div class="guide-body"><ul>' +
+      '<li>Budgt checks the last 3 months of non-essential spending, including Other, and groups purchases by store, by words in your notes, and by receipt items.</li>' +
+      '<li>Something counts as a habit when it repeats at least 3 times and is bought twice a month or more, or costs $100+ a month.</li>' +
+      '<li><b>High strain:</b> 5% or more of your income, or $150+ a month. <b>Moderate strain:</b> 2% or more, or $60+ a month.</li>' +
+      '<li>Essential categories and debt payments are never flagged.</li></ul></div></details></div>';
     el.innerHTML = html;
   }
 
