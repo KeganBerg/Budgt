@@ -69,7 +69,7 @@
   }
 
   function renderTape() {
-    tapeEl.innerHTML = tape.length ? '' : '<li class="tape-empty">Type 1450 + 120 + 65 and press =</li>';
+    tapeEl.innerHTML = '';
     tape.forEach((t, idx) => {
       const li = document.createElement('li');
       const e = document.createElement('button'); e.type = 'button'; e.textContent = t.expr; e.title = 'Edit this calculation'; e.dataset.idx = idx; e.dataset.use = 'expr';
