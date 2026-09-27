@@ -623,3 +623,9 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 }
 @keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { dialog { animation: none; } }
+@media (max-width: 760px) {
+  /* Six equal slots so labels never crowd each other. */
+  .tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; justify-content: stretch; }
+  .tabs a { padding: 6px 0; gap: 3px; white-space: nowrap; min-width: 0; }
+  .tabs a span { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+}
