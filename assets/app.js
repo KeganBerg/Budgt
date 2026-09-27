@@ -474,6 +474,23 @@
         x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, vx: 0, vy: 0 };
     });
     const reach = n => Math.max(n.r, n.rb);
+    // Settle the layout off-screen first, then scale the whole cluster up so it fills the stage edge to edge.
+    for (let it = 0; it < 500; it++) {
+      for (const n of nodes) { n.x += (cx - n.x) * 0.01; n.y += (cy - n.y) * Math.min(0.5, 0.01 * Math.pow(W / H, 2)); }
+      for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+        const A = nodes[i], B = nodes[j];
+        let dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 0.01;
+        const min = reach(A) + reach(B) + 3;
+        if (d < min) { const push = (min - d) / d * 0.5; A.x -= dx * push; A.y -= dy * push; B.x += dx * push; B.y += dy * push; }
+      }
+    }
+    {
+      const x0 = Math.min(...nodes.map(n => n.x - reach(n))), x1 = Math.max(...nodes.map(n => n.x + reach(n)));
+      const y0 = Math.min(...nodes.map(n => n.y - reach(n))), y1 = Math.max(...nodes.map(n => n.y + reach(n)));
+      const pad = 10, f = Math.min((W - pad * 2) / (x1 - x0), (H - pad * 2) / (y1 - y0));
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      nodes.forEach(n => { n.x = cx + (n.x - mx) * f; n.y = cy + (n.y - my) * f; n.r *= f; n.rb *= f; });
+    }
     svg.innerHTML = nodes.map((n, i) => {
       const over = n.budget && n.s > n.budget;
       const label = n.r >= 30;
@@ -487,7 +504,7 @@
     const tick = () => {
       for (const n of nodes) {
         if (n === (drag && drag.n)) continue;
-        n.vx += (cx - n.x) * 0.012; n.vy += (cy - n.y) * 0.012 * (W / H);
+        n.vx += (cx - n.x) * 0.004; n.vy += (cy - n.y) * 0.004 * (W / H);
       }
       for (let pass = 0; pass < 3; pass++) for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i], b = nodes[j];
