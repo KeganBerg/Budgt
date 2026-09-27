@@ -333,7 +333,7 @@
     html += strainBanner();
 
     html += '<div class="grid">';
-    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-spend">Spending</span><span class="lg lg-incline">Income</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
+    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month<button type="button" class="link-btn guide-link" data-act="chart-guide" aria-haspopup="dialog">How to read this</button></h3><div class="legend"><span class="lg lg-spend">Spending</span><span class="lg lg-incline">Income</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
@@ -1612,6 +1612,7 @@
       case 'edit-goal': goalForm(state.goals.find(g => g.id === id)); break;
       case 'contribute': contributeForm(state.goals.find(g => g.id === id)); break;
       case 'add-cat': catForm(); break;
+      case 'chart-guide': $('#chartGuide').showModal(); break;
       case 'pick-plan': selectedPlan = id; render(); break;
       case 'apply-plan': applyPlan(id); break;
       case 'use-income': state.income = detectedIncome(); save(); break;
