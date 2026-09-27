@@ -139,10 +139,10 @@
   }
 
   // ---------- charts (plain SVG) ----------
-  function cumulativeSeries(k) {
+  function cumulativeSeries(k, type) {
     const days = daysInMonth(k);
     const daily = new Array(days).fill(0);
-    txnsIn(k).forEach(t => { if (t.type === 'expense') daily[Number(t.date.slice(8, 10)) - 1] += t.amount; });
+    txnsIn(k).forEach(t => { if (t.type === (type || 'expense')) daily[Number(t.date.slice(8, 10)) - 1] += t.amount; });
     let run = 0;
     return daily.map(v => (run += v));
   }
@@ -164,25 +164,65 @@
     const budget = totalBudget();
     const spentNow = cur[upTo - 1] || 0;
     const projected = isCurrent && upTo < days ? spentNow / upTo * days : 0;
-    const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected);
-    const step = niceStep(top, H > 300 ? 5 : 4);
+    const inc = cumulativeSeries(k, 'income');
+    const hasInc = inc[upTo - 1] > 0;
+    const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected, hasInc ? inc[upTo - 1] : 0);
+    // Gridlines about every 45px on screen, so a tall chart gets a finer dollar scale.
+    const screenH = H * 11 / fs, screenW = 600 * 11 / fs;
+    const step = niceStep(top, Math.max(4, Math.min(10, Math.round(screenH / 45))));
     const max = Math.ceil(top / step) * step;
     const x = (i, len) => P.l + (i / Math.max(1, len - 1)) * (W - P.l - P.r);
     const y = v => H - P.b - (v / max) * (H - P.t - P.b);
-    const path = (arr, len) => arr.map((v, i) => (i ? 'L' : 'M') + x(i, len).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-    let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" style="--axis-fs:' + fs.toFixed(1) + 'px" role="img" aria-label="Cumulative spending this month compared with last month">';
+    const path = (arr, len) => smoothPath(arr.map((v, i) => [x(i, len), y(v)]));
+    let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" style="--axis-fs:' + fs.toFixed(1) + 'px" role="img" aria-label="Cumulative spending and income this month, compared with last month">';
     for (let v = 0; v <= max + 0.001; v += step) {
       svg += '<line class="grid-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (P.l - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + esc(compact(v)) + '</text>';
     }
     if (budget > 0) svg += '<line class="budget-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(budget) + '" y2="' + y(budget) + '"/><text class="axis budget-label" x="' + (W - P.r) + '" y="' + (y(budget) - 6) + '" text-anchor="end">Budget ' + esc(money0(budget)) + '</text>';
     if (prev[prev.length - 1] > 0) svg += '<path class="line-prev" d="' + path(prev, prev.length) + '"/>';
     const curPts = cur.slice(0, upTo);
-    svg += '<path class="line-area" d="' + path(curPts, days) + ' L' + x(upTo - 1, days) + ' ' + y(0) + ' L' + x(0, days) + ' ' + y(0) + ' Z"/>';
-    svg += '<path class="line-cur" d="' + path(curPts, days) + '"/>';
+    if (hasInc) {
+      // Shade the gap between income and spending: red where spending is ahead of income, dark where you're still in the black.
+      const incPts = inc.slice(0, upTo);
+      // Shade between the two curves; clip to above or below the spending curve to color each side.
+      const top = y(max) - 2, base = y(0) + 2, xEnd = x(upTo - 1, days).toFixed(1), x0 = x(0, days).toFixed(1);
+      const spRev = smoothPath(curPts.map((v, i) => [x(i, days), y(v)]).reverse()).replace(/^M/, 'L');
+      const band = path(incPts, days) + ' ' + spRev + ' Z';
+      const spLine = path(curPts, days);
+      svg += '<defs><clipPath id="clipAbove"><path d="' + spLine + ' L' + xEnd + ' ' + top + ' L' + x0 + ' ' + top + ' Z"/></clipPath>' +
+        '<clipPath id="clipBelow"><path d="' + spLine + ' L' + xEnd + ' ' + base + ' L' + x0 + ' ' + base + ' Z"/></clipPath></defs>';
+      svg += '<path class="gap-pos" clip-path="url(#clipAbove)" d="' + band + '"/><path class="gap-neg" clip-path="url(#clipBelow)" d="' + band + '"/>';
+      svg += '<path class="line-income" d="' + path(incPts, days) + '"/>';
+    }
+    svg += '<path class="line-cur line-spend" d="' + path(curPts, days) + '"/>';
     if (projected) svg += '<path class="line-proj" d="M' + x(upTo - 1, days) + ' ' + y(spentNow) + ' L' + x(days - 1, days) + ' ' + y(projected) + '"/><text class="axis proj-label" x="' + (W - P.r) + '" y="' + (y(projected) + (y(projected) < P.t + 16 ? 14 : -6)) + '" text-anchor="end">On pace for ' + esc(money0(projected)) + '</text>';
-    svg += '<circle class="line-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
-    (fs > 16 ? [1, 15, days] : [1, 8, 15, 22, days]).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
+    svg += '<circle class="line-dot line-spend-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
+    if (hasInc) {
+      const net = inc[upTo - 1] - spentNow;
+      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
+    }
+    (fs > 16 ? [1, 15, days] : (() => { const every = screenW > 1000 ? 3 : screenW > 700 ? 5 : 7, out = []; for (let d = 1; d <= days - Math.ceil(every * 0.8); d += every) out.push(d); return out.concat(days); })()).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
     return svg + '</svg>';
+  }
+  // Monotone cubic curve through the points (no overshoot, so running totals never dip).
+  function smoothPath(pts) {
+    const n = pts.length;
+    if (n < 3) return pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const dx = [], m = [], t = [];
+    for (let i = 0; i < n - 1; i++) { dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / (dx[i] || 1); }
+    t[0] = m[0]; t[n - 1] = m[n - 2];
+    for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+      const a = t[i] / m[i], b = t[i + 1] / m[i], h = a * a + b * b;
+      if (h > 9) { const k = 3 / Math.sqrt(h); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
+    }
+    let d = 'M' + pts[0][0].toFixed(1) + ' ' + pts[0][1].toFixed(1);
+    for (let i = 0; i < n - 1; i++) {
+      const h = dx[i] / 3;
+      d += ' C' + (pts[i][0] + h).toFixed(1) + ' ' + (pts[i][1] + t[i] * h).toFixed(1) + ' ' + (pts[i + 1][0] - h).toFixed(1) + ' ' + (pts[i + 1][1] - t[i + 1] * h).toFixed(1) + ' ' + pts[i + 1][0].toFixed(1) + ' ' + pts[i + 1][1].toFixed(1);
+    }
+    return d;
   }
   function compact(v) { return v >= 1000 ? '$' + (v / 1000).toFixed(v % 1000 ? 1 : 0).replace(/\.0$/, '') + 'k' : '$' + Math.round(v); }
 
@@ -213,9 +253,9 @@
     const svg = wrap.querySelector('svg');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     if (!w || !svg) return;
-    // Keep the chart at least 240px tall on screen and its labels about 11px, however wide the card is.
+    // Keep the chart at least 340px tall on screen and its labels about 11px, however wide the card is.
     const scale = 600 / w;
-    const target = Math.min(900, Math.max(Math.round(h * scale), Math.round(240 * scale)));
+    const target = Math.min(900, Math.max(Math.round(h * scale), Math.round(340 * scale)));
     const fs = 11 * scale;
     const current = svg.viewBox.baseVal.height;
     if (Math.abs(target - current) > 6 || Math.abs(fs - 11) > 0.5) wrap.innerHTML = lineChart(viewMonth, target, fs);
@@ -268,6 +308,7 @@
     document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.view === v));
     $('#viewTitle').textContent = titles[v];
     $('#monthLabel').textContent = monthName(viewMonth);
+    $('#monthLabelShort').textContent = monthName(viewMonth, { month: 'short', year: 'numeric' });
     $('.month-picker').style.visibility = (v === 'goals' || v === 'liabilities') ? 'hidden' : '';
     ({ dashboard: renderDashboard, transactions: renderTransactions, budget: renderBudget, liabilities: renderLiabilities, goals: renderGoals })[v]();
   }
@@ -280,8 +321,8 @@
     const el = $('#view-dashboard');
     if (!state.transactions.length && !state.liabilities.length && !state.goals.length) {
       el.innerHTML = emptyCard('Welcome to Budgt',
-        'Start by adding a transaction, setting your monthly budget, or listing your bills and debts. Want to look around first? Load some sample data and clear it whenever you like.',
-        '<button class="btn" data-act="add-txn">Add a transaction</button><a class="btn btn-ghost" href="#budget">Set a budget</a><button class="btn btn-ghost" data-act="sample">Load sample data</button>');
+        'Add your first transaction with the + button, set a monthly budget, or load sample data to look around. You can clear it any time.',
+        '<a class="btn" href="#budget">Set a budget</a><button class="btn btn-ghost" data-act="sample">Load sample data</button>');
       return;
     }
     const list = txnsIn(viewMonth);
@@ -305,7 +346,7 @@
     html += strainBanner();
 
     html += '<div class="grid">';
-    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-cur">' + esc(monthName(viewMonth, { month: 'short' })) + '</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
+    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-spend">Spending</span><span class="lg lg-incline">Income</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
@@ -459,7 +500,7 @@
     if (!cats.length) { bubbleData = null; return '<p class="muted">Set monthly limits on the <a href="#budget">Budget</a> page to track them here.</p>'; }
     const live = cats.filter(x => x.s > 0), idle = cats.filter(x => !(x.s > 0));
     bubbleData = live;
-    return '<div class="bubbles"><div class="bubble-stage" id="bubbleStage" role="img" aria-label="Spending by category as bubbles, largest first: ' + esc(live.map(x => x.c.name + ' ' + money0(x.s)).join(', ')) + '">' +
+    return '<div class="bubbles"><div class="bubble-stage" id="bubbleStage" role="group" aria-label="Spending by category, sized by amount">' +
       (live.length ? '<svg id="bubbleSvg"></svg><div class="bubble-tip" id="bubbleTip" hidden></div>' : '<p class="muted">No spending yet this month.</p>') + '</div>' +
       '<div class="bubble-side"><ol class="bubble-rank">' + live.map((x, i) => {
         const over = x.c.budget > 0 && x.s > x.c.budget;
@@ -488,6 +529,23 @@
         x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, vx: 0, vy: 0 };
     });
     const reach = n => Math.max(n.r, n.rb);
+    // Settle the layout off-screen first, then scale the whole cluster up so it fills the stage edge to edge.
+    for (let it = 0; it < 500; it++) {
+      for (const n of nodes) { n.x += (cx - n.x) * 0.01; n.y += (cy - n.y) * Math.min(0.5, 0.01 * Math.pow(W / H, 2)); }
+      for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+        const A = nodes[i], B = nodes[j];
+        let dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 0.01;
+        const min = reach(A) + reach(B) + 3;
+        if (d < min) { const push = (min - d) / d * 0.5; A.x -= dx * push; A.y -= dy * push; B.x += dx * push; B.y += dy * push; }
+      }
+    }
+    {
+      const x0 = Math.min(...nodes.map(n => n.x - reach(n))), x1 = Math.max(...nodes.map(n => n.x + reach(n)));
+      const y0 = Math.min(...nodes.map(n => n.y - reach(n))), y1 = Math.max(...nodes.map(n => n.y + reach(n)));
+      const pad = 10, f = Math.min((W - pad * 2) / (x1 - x0), (H - pad * 2) / (y1 - y0));
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      nodes.forEach(n => { n.x = cx + (n.x - mx) * f; n.y = cy + (n.y - my) * f; n.r *= f; n.rb *= f; });
+    }
     svg.innerHTML = nodes.map((n, i) => {
       const over = n.budget && n.s > n.budget;
       const label = n.r >= 30;
@@ -501,7 +559,7 @@
     const tick = () => {
       for (const n of nodes) {
         if (n === (drag && drag.n)) continue;
-        n.vx += (cx - n.x) * 0.012; n.vy += (cy - n.y) * 0.012 * (W / H);
+        n.vx += (cx - n.x) * 0.004; n.vy += (cy - n.y) * 0.004 * (W / H);
       }
       for (let pass = 0; pass < 3; pass++) for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i], b = nodes[j];
@@ -1119,6 +1177,18 @@
     el.innerHTML = html;
   }
 
+  // Headline wording varies by habit and month, but stays put between page loads so it doesn't flicker.
+  const STRAIN_LINES = {
+    medium: ['{x} is a habit that is adding up.', '{x} keeps showing up in your spending.', 'Those {x} runs are starting to add up.', '{x} has become a regular expense.', 'Small {x} purchases are stacking up.', 'Your {x} spending has turned into a pattern.'],
+    high: ['{x} is putting a lot of strain on your budget.', '{x} is one of your biggest money leaks.', '{x} is taking a big bite out of your income.', 'Your {x} habit is costing you a lot.', '{x} is weighing heavily on your budget.'],
+  };
+  function strainHeadline(g) {
+    const lines = STRAIN_LINES[g.level === 'high' ? 'high' : 'medium'];
+    let h = 0;
+    for (const ch of g.key + monthKey(new Date())) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return lines[h % lines.length].replace('{x}', g.label);
+  }
+
   function strainBanner() {
     const high = findPatterns().filter(p => p.level === 'high' || p.level === 'medium');
     const dismissed = (state.dismissedStrain || {})[monthKey(new Date())] || [];
@@ -1126,7 +1196,7 @@
     if (!show.length) return '';
     const g = show[0];
     const m = patternMessage(g);
-    return '<div class="strain-banner" role="status"><span class="sb-icon" aria-hidden="true">!</span><div><b>' + esc(g.label) + (g.level === 'high' ? ' is putting a lot of strain on your budget.' : ' is a habit that is adding up.') + '</b><p>' + esc(m.text) + (show.length > 1 ? ' ' + (show.length - 1) + ' more habit' + (show.length > 2 ? 's' : '') + ' flagged.' : '') + '</p></div>' +
+    return '<div class="strain-banner" role="status"><span class="sb-icon" aria-hidden="true">!</span><div><b>' + esc(strainHeadline(g)) + '</b><p>' + esc(m.text) + (show.length > 1 ? ' ' + (show.length - 1) + ' more habit' + (show.length > 2 ? 's' : '') + ' flagged.' : '') + '</p></div>' +
       '<div class="row-actions"><a class="btn btn-sm" href="#budget/patterns">See patterns</a><button type="button" class="btn btn-ghost btn-sm" data-act="dismiss-strain" data-id="' + esc(g.key) + '">Dismiss</button></div></div>';
   }
 
@@ -1219,6 +1289,7 @@
     const isNew = !t;
     t = t || { type: 'expense', amount: '', date: viewMonth === monthKey(new Date()) ? todayISO() : viewMonth + '-01', merchant: '', categoryId: lastCategory(), note: '', items: [] };
     const body =
+      '<div class="scan-row"><label class="btn btn-ghost btn-sm scan-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Scan receipt</span><input type="file" id="scanFile" accept="image/*" hidden></label><span class="scan-status" id="scanStatus" role="status"></span></div>' +
       '<div class="seg" role="radiogroup"><label><input type="radio" name="ttype" value="expense"' + (t.type === 'expense' ? ' checked' : '') + '><span>Expense</span></label><label><input type="radio" name="ttype" value="income"' + (t.type === 'income' ? ' checked' : '') + '><span>Income</span></label></div>' +
       '<div class="form-grid">' +
       field('Amount', '<input id="f-amount" inputmode="decimal" placeholder="0.00" value="' + (t.amount || '') + '" required>') +
@@ -1254,6 +1325,7 @@
       const inc = r.value === 'income' && r.checked;
       if (r.checked) $('#f-cat').innerHTML = catOptions(inc ? 'income' : (t.categoryId !== 'income' ? t.categoryId : ''), inc);
     }));
+    $('#scanFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) scanReceipt(f); });
     $('#addItem').addEventListener('click', () => { $('#itemRows').insertAdjacentHTML('beforeend', itemRow()); $('#itemRows').lastElementChild.querySelector('input').focus(); updateItemsSum(); });
     $('#useItems').addEventListener('click', () => { const s = itemsTotal(); if (s > 0) $('#f-amount').value = s.toFixed(2); updateItemsSum(); });
     $('#itemRows').addEventListener('click', e => { if (e.target.closest('[data-rm-item]')) { e.target.closest('li').remove(); updateItemsSum(); } });
@@ -1291,6 +1363,131 @@
 
   // ---------- autocomplete from past entries ----------
   // Remembers merchants, notes and receipt items you've typed before, most used first.
+  // ---------- receipt scanning ----------
+  // Text recognition runs in the browser with Tesseract.js; the photo never leaves the device.
+  // Only the recognition engine and its English data are downloaded, the first time you scan.
+  const TESS_JS = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+  const TESS_SRI = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F';
+  const TESS_LANG = 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int';
+  let tessLoading = null;
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve();
+    return tessLoading || (tessLoading = new Promise((ok, no) => {
+      const sc = document.createElement('script'); sc.src = TESS_JS; sc.async = true; sc.crossOrigin = 'anonymous'; sc.integrity = TESS_SRI;
+      sc.onload = ok; sc.onerror = () => { tessLoading = null; no(new Error('load')); };
+      document.head.appendChild(sc);
+    }));
+  }
+  // Downscale, grayscale and stretch contrast: receipts are faint and phone photos are huge.
+  async function prepReceipt(file) {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const g = c.getContext('2d'); g.drawImage(bmp, 0, 0, c.width, c.height);
+    const img = g.getImageData(0, 0, c.width, c.height), d = img.data;
+    let lo = 255, hi = 0;
+    for (let i = 0; i < d.length; i += 4) { const v = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114; d[i] = v; if (v < lo) lo = v; if (v > hi) hi = v; }
+    const span = Math.max(1, hi - lo);
+    for (let i = 0; i < d.length; i += 4) { const v = (d[i] - lo) / span * 255; d[i] = d[i + 1] = d[i + 2] = v; }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
+  const PRICE_END = /(-?)\$?\s?(\d{1,5}(?:,\d{3})*[.,]\s?\d{2})\s*-?\s*[A-Z*]{0,2}\s*$/;
+  const NOT_ITEM = /sub\s*-?total|total|tax|change|cash|visa|master|amex|discover|debit|credit|card|balance|tender|payment|paid|auth|approv|saving|you saved|discount|coupon|tip|gratuity|rounding|points|reward|refund|items? sold|qty|account|member/i;
+  function parseReceipt(text) {
+    const lines = text.split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const price = l => { const m = l.match(PRICE_END); return m ? (m[1] ? -1 : 1) * parseFloat(m[2].replace(/,(?=\d{3})/g, '').replace(/,\s?(\d{2})$/, '.$1').replace(/\s/g, '')) : null; };
+    // Total: the last "total" line that isn't a subtotal, savings or tax line.
+    let total = null, totalIdx = -1;
+    lines.forEach((l, i) => {
+      if (/(^|\s)(grand\s*)?total|amount\s*due|balance\s*due|total\s*due/i.test(l) && !/sub\s*-?total|saving|tax|items/i.test(l)) {
+        const p = price(l); if (p > 0) { total = p; totalIdx = i; }
+      }
+    });
+    const prices = lines.map(price);
+    if (total == null) {
+      // No "total" line: trust a card charge, never cash handed over or change; otherwise stop at the first payment line.
+      const card = lines.findIndex((l, i) => prices[i] > 0 && /visa|master|amex|discover|debit|credit|card/i.test(l));
+      const pay = lines.findIndex((l, i) => prices[i] > 0 && /cash|tender|change|visa|master|amex|discover|debit|credit|card|payment/i.test(l));
+      if (card >= 0) { total = prices[card]; totalIdx = card; }
+      else if (pay >= 0) totalIdx = pay;
+    }
+    // Items: priced lines above the total that aren't payment or tax lines.
+    const items = [];
+    lines.forEach((l, i) => {
+      if (totalIdx >= 0 && i >= totalIdx) return;
+      const p = prices[i]; if (p == null || p === 0 || NOT_ITEM.test(l)) return;
+      let name = l.replace(PRICE_END, '').replace(/^[\d\s#@x*.-]+(?=[A-Za-z])/, '').replace(/\b\d{6,}\b/g, '').replace(/[^A-Za-z0-9&'%/ .-]/g, ' ').replace(/\s+/g, ' ').trim();
+      if ((name.match(/[A-Za-z]/g) || []).length < 2) return;
+      name = name.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase()).slice(0, 40);
+      items.push({ name, amount: round2(p) });
+    });
+    if (total == null && items.length) total = round2(items.reduce((a, it) => a + it.amount, 0));
+    // Date: first date-looking string that isn't in the future.
+    let date = null;
+    const today = todayISO();
+    for (const l of lines) {
+      let m = l.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/), y, mo, da;
+      if (m) { y = +m[1]; mo = +m[2]; da = +m[3]; }
+      else if ((m = l.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2}|\d{4})\b/))) { mo = +m[1]; da = +m[2]; y = +m[3]; if (y < 100) y += 2000; if (mo > 12 && da <= 12) [mo, da] = [da, mo]; }
+      if (!m || mo < 1 || mo > 12 || da < 1 || da > 31) continue;
+      const iso = y + '-' + String(mo).padStart(2, '0') + '-' + String(da).padStart(2, '0');
+      if (iso <= today && iso >= shiftMonth(today.slice(0, 7), -18)) { date = iso; break; }
+    }
+    // Store: the first line near the top that reads like a name, not an address, phone or number.
+    let merchant = '';
+    for (const l of lines.slice(0, 6)) {
+      const letters = (l.match(/[A-Za-z]/g) || []).length;
+      if (letters < 3 || letters < l.replace(/\s/g, '').length * 0.6) continue;
+      if (/^\d/.test(l) || /\d{3}[-.\s)]\d{3}|www\.|\.com|street|\b(st|ave|rd|blvd|dr|ln|hwy|pkwy)\b\.?|road|suite|receipt|welcome|store\s*#|tel|phone/i.test(l)) continue;
+      merchant = l.replace(/[^A-Za-z0-9&' .-]/g, '').trim();
+      if (merchant === merchant.toUpperCase()) merchant = merchant.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase());
+      break;
+    }
+    return { total: total != null ? round2(total) : null, items, date, merchant };
+  }
+
+  async function scanReceipt(file) {
+    const status = $('#scanStatus');
+    const say = (txt, cls) => { if (status) { status.textContent = txt; status.className = 'scan-status ' + (cls || ''); } };
+    const form = $('#f-amount');   // the form this scan belongs to; ignore the result if it was closed or replaced
+    say('Reading receipt…');
+    let text, worker;
+    try {
+      await loadTesseract();
+      const canvas = await prepReceipt(file);
+      worker = await Tesseract.createWorker('eng', 1, { langPath: TESS_LANG, logger: m => { if (m.status === 'recognizing text') say('Reading receipt… ' + Math.round(m.progress * 100) + '%'); } });
+      ({ data: { text } } = await worker.recognize(canvas));
+    } catch (err) {
+      if (!form || !form.isConnected) return;
+      say('Couldn\'t load the scanner. Check your connection and try again.', 'neg');
+      return;
+    } finally {
+      if (worker) worker.terminate().catch(() => {});
+    }
+    if (!modal.open || !form || !form.isConnected) return;
+    const r = parseReceipt(text || '');
+    if (!r.total && !r.items.length) { say('Couldn\'t find prices. Try a flat, well-lit photo.', 'neg'); return; }
+    const exp = modal.querySelector('input[name=ttype][value="expense"]');
+    if (exp && !exp.checked) { exp.checked = true; exp.dispatchEvent(new Event('change', { bubbles: true })); }
+    if (r.total) $('#f-amount').value = r.total.toFixed(2);
+    if (r.date) $('#f-date').value = r.date;
+    if (r.merchant && !val('f-merchant')) {
+      // Reuse the spelling and category of a store you've logged before.
+      const key = r.merchant.toLowerCase();
+      const past = pastEntries(x => [[x.merchant]]).find(e => e.value.toLowerCase() === key || e.value.toLowerCase().startsWith(key.split(' ')[0]) && key.split(' ')[0].length > 3);
+      $('#f-merchant').value = past ? past.value : r.merchant;
+      const cat = $('#f-cat');
+      if (past && cat && Array.from(cat.options).some(o => o.value === past.last.categoryId)) cat.value = past.last.categoryId;
+    }
+    if (r.items.length) {
+      $('#itemRows').innerHTML = r.items.map(itemRow).join('');
+      $('#receiptBox').open = true;
+    }
+    updateItemsSum();
+    say('');
+  }
+
   function pastEntries(pick) {
     const map = new Map();
     state.transactions.slice().sort((a, b) => a.date.localeCompare(b.date) || (a.created || 0) - (b.created || 0)).forEach(t => {
