@@ -131,6 +131,12 @@
   }
 
   function paymentFor(liabilityId, k) { return state.transactions.find(t => t.liabilityId === liabilityId && t.date.slice(0, 7) === k); }
+  function debtFor(t) { const l = t && t.liabilityId && state.liabilities.find(x => x.id === t.liabilityId); return l && l.type === 'debt' ? l : null; }
+  // Put back what a logged debt payment took off the balance (the reverse of Mark paid).
+  function refundDebtPayment(t) {
+    const l = debtFor(t);
+    if (l) { const r = (l.apr || 0) / 100 / 12; l.balance = round2((l.balance + t.amount) / (1 + r)); }
+  }
 
   // ---------- charts (plain SVG) ----------
   function cumulativeSeries(k) {
@@ -214,8 +220,15 @@
     const current = svg.viewBox.baseVal.height;
     if (Math.abs(target - current) > 6 || Math.abs(fs - 11) > 0.5) wrap.innerHTML = lineChart(viewMonth, target, fs);
   }
+  // SVG text scales with the chart's width; counter that so axis labels stay about 11px on screen.
+  function fitAxisText(root) {
+    root.querySelectorAll('svg.chart').forEach(svg => {
+      if (svg.closest('.chart-fill') || !svg.clientWidth) return;
+      svg.style.setProperty('--axis-fs', (11 * svg.viewBox.baseVal.width / svg.clientWidth).toFixed(1) + 'px');
+    });
+  }
   let fitTimer;
-  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { if (currentView() === 'dashboard') renderDashboard(); }, 150); });
+  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { if (currentView() === 'dashboard') renderDashboard(); else fitAxisText(document); }, 150); });
 
   function barChart(endK) {
     const months = [];
@@ -310,6 +323,7 @@
     html += '</div>';
     el.innerHTML = html;
     fitSpendingChart();
+    fitAxisText(el);
   }
 
   function statCard(label, value, sub, tone) {
@@ -448,6 +462,7 @@
     const paceLabel = g.monthly > 0 ? 'at ' + money0(g.monthly) + '/mo' : 'at your recent savings rate';
     if (pace <= 0) return { text: g.monthly > 0 ? '' : 'Not saving yet. Set a monthly amount.', tone: 'neg', color: 'var(--neg)' };
     const months = Math.ceil(remaining / pace);
+    if (g.date && monthsUntil(g.date) < 0) return { text: 'Target date passed. ' + esc(monthsFromNow(months)) + ' ' + paceLabel + ', or set a new date.', tone: 'warn', color: 'var(--warn)' };
     if (g.date) {
       const left = Math.max(1, monthsUntil(g.date));
       const need = remaining / left;
@@ -478,7 +493,7 @@
     if (txnFilter.cat) list = list.filter(t => t.categoryId === txnFilter.cat);
     const opts = '<option value="">All categories</option><option value="income"' + (txnFilter.cat === 'income' ? ' selected' : '') + '>Income</option>' + state.categories.map(c => '<option value="' + c.id + '"' + (txnFilter.cat === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
     const all = txnsIn(viewMonth);
-    el.innerHTML = '<div class="card"><div class="toolbar"><input type="search" id="txnSearch" placeholder="Search merchants, notes, receipt items" value="' + esc(txnFilter.q) + '"><select id="txnCat">' + opts + '</select></div>' +
+    el.innerHTML = '<div class="card"><div class="toolbar"><input type="search" id="txnSearch" aria-label="Search transactions" placeholder="Search merchants, notes, receipt items" value="' + esc(txnFilter.q) + '"><select id="txnCat" aria-label="Filter by category">' + opts + '</select></div>' +
       viewTotals(list, all.length) + txnList(list, false) + '</div>';
     const s = $('#txnSearch');
     s.addEventListener('input', () => { txnFilter.q = s.value; const pos = s.selectionStart; renderTransactions(); const n = $('#txnSearch'); n.focus(); n.setSelectionRange(pos, pos); });
@@ -708,7 +723,8 @@
 
   // 12-month projection of savings and debt, current habits vs a plan.
   function simulate(monthlySave, extraDebt) {
-    const debts = state.liabilities.filter(l => l.type === 'debt').map(l => ({ bal: l.balance || 0, apr: l.apr || 0, pay: l.payment || 0 }));
+    // Only debts with a balance: paid-off ones are already left out of the monthly savings figure, so their payment isn't "freed" again.
+    const debts = state.liabilities.filter(l => l.type === 'debt' && l.balance > 0).map(l => ({ bal: l.balance, apr: l.apr || 0, pay: l.payment || 0 }));
     let savings = state.goals.reduce((a, g) => a + g.saved, 0);
     const pts = [{ savings, debt: debts.reduce((a, d) => a + d.bal, 0) }];
     for (let m = 1; m <= 12; m++) {
@@ -811,6 +827,7 @@
       '<div class="row-actions plan-actions"><button type="button" class="btn" data-act="apply-plan" data-id="' + r.plan.id + '">' + (active === r.plan.id ? 'Re-apply ' : 'Use ') + esc(r.plan.name) + '</button><span class="muted small">Sets your Flexible category budgets. Essentials keep their current amounts.</span></div></div>' +
       '<div class="card">' + outlookChart(r) + '</div></div></div>' + planGuide();
     el.innerHTML = html;
+    fitAxisText(el);
   }
 
   const SOURCES = {
@@ -878,8 +895,10 @@
       const habitual = perMonth >= 2 || monthly >= 100;
       const level = !habitual ? 'low' : (I > 0 && share >= 0.05) || monthly >= 150 ? 'high' : (I > 0 && share >= 0.02) || monthly >= 60 ? 'medium' : 'low';
       const recent = g.dates.filter(d => d.slice(0, 7) === cur).length;
-      const topMerchant = Object.keys(g.merchants).sort((a, b) => g.merchants[b] - g.merchants[a])[0];
-      return Object.assign(g, { monthly, share, level, perMonth: g.txns.size / monthsSpan, recent, topMerchant, flexShare: flexMonthly ? monthly / flexMonthly : 0 });
+      // Name a store only when every purchase in the group was made there; a note word like "subscription" can span many stores.
+      const stores = Object.keys(g.merchants).sort((a, b) => g.merchants[b] - g.merchants[a]);
+      const topMerchant = stores.length === 1 && g.merchants[stores[0]] === g.txns.size ? stores[0] : '';
+      return Object.assign(g, { monthly, share, level, perMonth: g.txns.size / monthsSpan, recent, topMerchant, stores, flexShare: flexMonthly ? monthly / flexMonthly : 0 });
     }).sort((a, b) => b.monthly - a.monthly);
     // Keep the most expensive grouping of each set of purchases (e.g. a "vape" note over its store name).
     const picked = [], covered = new Set();
@@ -893,7 +912,7 @@
 
   function patternMessage(g) {
     const I = monthlyIncome();
-    const where = g.kind !== 'merchant' && g.topMerchant ? ' at ' + g.topMerchant : '';
+    const where = g.kind === 'merchant' ? '' : g.topMerchant ? ' at ' + g.topMerchant : g.stores.length > 1 ? ' across ' + storeList(g.stores) : '';
     const kindText = g.kind === 'note' ? 'from your notes' : g.kind === 'item' ? 'from receipt items' : 'by store';
     let text = g.label + where + ' costs about ' + money0(g.monthly) + ' a month (' + Math.round(g.perMonth) + ' purchase' + (Math.round(g.perMonth) === 1 ? '' : 's') + ' a month)';
     if (I > 0) text += ', ' + (g.share * 100).toFixed(g.share < 0.1 ? 1 : 0) + '% of your income';
@@ -910,6 +929,11 @@
       } else impact = 'Cutting it in half would free up ' + money0(half) + ' a month toward your ' + goal.name + '.';
     } else impact = 'Cutting it in half would free up ' + money0(g.monthly / 2) + ' a month.';
     return { text, impact, kindText };
+  }
+
+  function storeList(stores) {
+    if (stores.length > 3) return stores.slice(0, 2).join(', ') + ' and ' + (stores.length - 2) + ' other stores';
+    return stores.length === 3 ? stores[0] + ', ' + stores[1] + ' and ' + stores[2] : stores.join(' and ');
   }
 
   function renderPatterns(el) {
@@ -1056,10 +1080,15 @@
       const items = readItems();
       if (items === null) return fail('Each receipt item needs a name and an amount.');
       const rec = isNew ? { id: uid(), created: Date.now() } : t;
+      // A changed debt payment moves the debt balance by the difference.
+      const debt = !isNew && debtFor(t);
+      if (debt && type === 'expense') debt.balance = round2(Math.max(0, debt.balance - (round2(amount) - t.amount)));
+      else if (debt) refundDebtPayment(t);
       Object.assign(rec, { type, amount: round2(amount), date, merchant: val('f-merchant'), categoryId: type === 'income' ? 'income' : val('f-cat'), note: val('f-note'), items });
+      if (debt && type !== 'expense') delete rec.liabilityId;
       if (isNew) state.transactions.push(rec);
       viewMonth = date.slice(0, 7);
-    }, isNew ? null : () => { state.transactions = state.transactions.filter(x => x.id !== t.id); }, null, { kind: 'txn', id: isNew ? null : t.id });
+    }, isNew ? null : () => { refundDebtPayment(t); state.transactions = state.transactions.filter(x => x.id !== t.id); }, null, { kind: 'txn', id: isNew ? null : t.id });
 
     modal.querySelectorAll('input[name=ttype]').forEach(r => r.addEventListener('change', () => {
       const inc = r.value === 'income' && r.checked;
@@ -1258,7 +1287,7 @@
       case 'pick-plan': selectedPlan = id; render(); break;
       case 'apply-plan': applyPlan(id); break;
       case 'use-income': state.income = detectedIncome(); save(); break;
-      case 'search-pattern': txnFilter = { q: b.dataset.q, cat: '' }; location.hash = '#transactions'; window.scrollTo(0, 0); break;
+      case 'search-pattern': txnFilter = { q: b.dataset.q, cat: '' }; viewMonth = monthKey(new Date()); if (location.hash === '#transactions') render(); else location.hash = '#transactions'; window.scrollTo(0, 0); break;
       case 'dismiss-strain': { const k = monthKey(new Date()); state.dismissedStrain = state.dismissedStrain || {}; (state.dismissedStrain[k] = state.dismissedStrain[k] || []).push(id); save(); break; }
       case 'view-cat': txnFilter = { q: '', cat: id }; if (location.hash === '#transactions') render(); else location.hash = '#transactions'; window.scrollTo(0, 0); break;
       case 'toggle-essential': { const c = state.categories.find(x => x.id === id); if (c) { c.essential = !isEssential(c); save(); } break; }
@@ -1283,7 +1312,7 @@
         const t = paymentFor(id, viewMonth);
         const l = state.liabilities.find(x => x.id === id);
         if (t) {
-          if (l && l.type === 'debt') { const r = (l.apr || 0) / 100 / 12; l.balance = round2((l.balance + t.amount) / (1 + r)); }
+          refundDebtPayment(t);
           state.transactions = state.transactions.filter(x => x !== t);
         }
         save(); break;
@@ -1305,11 +1334,14 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
+  $('#importBtn').addEventListener('click', () => $('#importFile').click());
   $('#importFile').addEventListener('change', e => {
     const f = e.target.files[0]; if (!f) return;
     f.text().then(txt => {
       const s = JSON.parse(txt);
       if (!s || !Array.isArray(s.categories) || !Array.isArray(s.transactions)) throw new Error('bad');
+      const okTxn = t => t && typeof t.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && isFinite(t.amount) && (t.type === 'expense' || t.type === 'income');
+      if (!s.transactions.every(okTxn) || !s.categories.every(c => c && typeof c.id === 'string' && typeof c.name === 'string')) throw new Error('bad');
       if (confirm('Replace everything in Budgt with this backup?')) { state = Object.assign(blankState(), s); save(); }
     }).catch(() => alert('That file isn\'t a Budgt backup.')).finally(() => { e.target.value = ''; });
   });

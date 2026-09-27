@@ -73,7 +73,7 @@
     tape.forEach((t, idx) => {
       const li = document.createElement('li');
       const e = document.createElement('button'); e.type = 'button'; e.textContent = t.expr; e.title = 'Edit this calculation'; e.dataset.idx = idx; e.dataset.use = 'expr';
-      const b = document.createElement('b'); b.textContent = '= ' + fmt.format(t.result); b.title = 'Use this result'; b.dataset.idx = idx; b.dataset.use = 'result';
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'tape-res'; b.textContent = '= ' + fmt.format(t.result); b.title = 'Use this result'; b.dataset.idx = idx; b.dataset.use = 'result';
       li.append(e, b); tapeEl.append(li);
     });
     tapeEl.scrollTop = tapeEl.scrollHeight;
