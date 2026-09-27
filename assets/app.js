@@ -161,11 +161,13 @@
     const inc = cumulativeSeries(k, 'income');
     const hasInc = inc[upTo - 1] > 0;
     const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected, hasInc ? inc[upTo - 1] : 0);
-    const step = niceStep(top, H > 300 ? 5 : 4);
+    // Gridlines about every 45px on screen, so a tall chart gets a finer dollar scale.
+    const screenH = H * 11 / fs, screenW = 600 * 11 / fs;
+    const step = niceStep(top, Math.max(4, Math.min(10, Math.round(screenH / 45))));
     const max = Math.ceil(top / step) * step;
     const x = (i, len) => P.l + (i / Math.max(1, len - 1)) * (W - P.l - P.r);
     const y = v => H - P.b - (v / max) * (H - P.t - P.b);
-    const path = (arr, len) => arr.map((v, i) => (i ? 'L' : 'M') + x(i, len).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+    const path = (arr, len) => smoothPath(arr.map((v, i) => [x(i, len), y(v)]));
     let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" style="--axis-fs:' + fs.toFixed(1) + 'px" role="img" aria-label="Cumulative spending and income this month, compared with last month">';
     for (let v = 0; v <= max + 0.001; v += step) {
       svg += '<line class="grid-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (P.l - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + esc(compact(v)) + '</text>';
@@ -176,25 +178,14 @@
     if (hasInc) {
       // Shade the gap between income and spending: red where spending is ahead of income, dark where you're still in the black.
       const incPts = inc.slice(0, upTo);
-      const segs = [];
-      let seg = null;
-      for (let i = 0; i < upTo; i++) {
-        const d = incPts[i] - curPts[i], sign = d >= 0;
-        if (seg && seg.sign !== sign) {
-          const d0 = incPts[i - 1] - curPts[i - 1], t = d0 / (d0 - d);
-          const xi = i - 1 + t, vi = curPts[i - 1] + (curPts[i] - curPts[i - 1]) * t;
-          seg.pts.push([xi, vi, vi]); segs.push(seg); seg = { sign, pts: [[xi, vi, vi]] };
-        }
-        if (!seg) seg = { sign, pts: [] };
-        seg.pts.push([i, incPts[i], curPts[i]]);
-      }
-      if (seg) segs.push(seg);
-      segs.forEach(g => {
-        if (g.pts.length < 2) return;
-        const top = g.pts.map((p, j) => (j ? 'L' : 'M') + x(p[0], days).toFixed(1) + ' ' + y(p[1]).toFixed(1)).join(' ');
-        const bot = g.pts.slice().reverse().map(p => 'L' + x(p[0], days).toFixed(1) + ' ' + y(p[2]).toFixed(1)).join(' ');
-        svg += '<path class="gap-' + (g.sign ? 'pos' : 'neg') + '" d="' + top + ' ' + bot + ' Z"/>';
-      });
+      // Shade between the two curves; clip to above or below the spending curve to color each side.
+      const top = y(max) - 2, base = y(0) + 2, xEnd = x(upTo - 1, days).toFixed(1), x0 = x(0, days).toFixed(1);
+      const spRev = smoothPath(curPts.map((v, i) => [x(i, days), y(v)]).reverse()).replace(/^M/, 'L');
+      const band = path(incPts, days) + ' ' + spRev + ' Z';
+      const spLine = path(curPts, days);
+      svg += '<defs><clipPath id="clipAbove"><path d="' + spLine + ' L' + xEnd + ' ' + top + ' L' + x0 + ' ' + top + ' Z"/></clipPath>' +
+        '<clipPath id="clipBelow"><path d="' + spLine + ' L' + xEnd + ' ' + base + ' L' + x0 + ' ' + base + ' Z"/></clipPath></defs>';
+      svg += '<path class="gap-pos" clip-path="url(#clipAbove)" d="' + band + '"/><path class="gap-neg" clip-path="url(#clipBelow)" d="' + band + '"/>';
       svg += '<path class="line-income" d="' + path(incPts, days) + '"/>';
     }
     svg += '<path class="line-cur line-spend" d="' + path(curPts, days) + '"/>';
@@ -204,8 +195,28 @@
       const net = inc[upTo - 1] - spentNow;
       svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
     }
-    (fs > 16 ? [1, 15, days] : [1, 8, 15, 22, days]).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
+    (fs > 16 ? [1, 15, days] : (() => { const every = screenW > 1000 ? 3 : screenW > 700 ? 5 : 7, out = []; for (let d = 1; d <= days - Math.ceil(every * 0.8); d += every) out.push(d); return out.concat(days); })()).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
     return svg + '</svg>';
+  }
+  // Monotone cubic curve through the points (no overshoot, so running totals never dip).
+  function smoothPath(pts) {
+    const n = pts.length;
+    if (n < 3) return pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const dx = [], m = [], t = [];
+    for (let i = 0; i < n - 1; i++) { dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / (dx[i] || 1); }
+    t[0] = m[0]; t[n - 1] = m[n - 2];
+    for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+      const a = t[i] / m[i], b = t[i + 1] / m[i], h = a * a + b * b;
+      if (h > 9) { const k = 3 / Math.sqrt(h); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
+    }
+    let d = 'M' + pts[0][0].toFixed(1) + ' ' + pts[0][1].toFixed(1);
+    for (let i = 0; i < n - 1; i++) {
+      const h = dx[i] / 3;
+      d += ' C' + (pts[i][0] + h).toFixed(1) + ' ' + (pts[i][1] + t[i] * h).toFixed(1) + ' ' + (pts[i + 1][0] - h).toFixed(1) + ' ' + (pts[i + 1][1] - t[i + 1] * h).toFixed(1) + ' ' + pts[i + 1][0].toFixed(1) + ' ' + pts[i + 1][1].toFixed(1);
+    }
+    return d;
   }
   function compact(v) { return v >= 1000 ? '$' + (v / 1000).toFixed(v % 1000 ? 1 : 0).replace(/\.0$/, '') + 'k' : '$' + Math.round(v); }
 
@@ -236,9 +247,9 @@
     const svg = wrap.querySelector('svg');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     if (!w || !svg) return;
-    // Keep the chart at least 240px tall on screen and its labels about 11px, however wide the card is.
+    // Keep the chart at least 340px tall on screen and its labels about 11px, however wide the card is.
     const scale = 600 / w;
-    const target = Math.min(900, Math.max(Math.round(h * scale), Math.round(240 * scale)));
+    const target = Math.min(900, Math.max(Math.round(h * scale), Math.round(340 * scale)));
     const fs = 11 * scale;
     const current = svg.viewBox.baseVal.height;
     if (Math.abs(target - current) > 6 || Math.abs(fs - 11) > 0.5) wrap.innerHTML = lineChart(viewMonth, target, fs);
