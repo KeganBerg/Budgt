@@ -133,10 +133,10 @@
   function paymentFor(liabilityId, k) { return state.transactions.find(t => t.liabilityId === liabilityId && t.date.slice(0, 7) === k); }
 
   // ---------- charts (plain SVG) ----------
-  function cumulativeSeries(k) {
+  function cumulativeSeries(k, type) {
     const days = daysInMonth(k);
     const daily = new Array(days).fill(0);
-    txnsIn(k).forEach(t => { if (t.type === 'expense') daily[Number(t.date.slice(8, 10)) - 1] += t.amount; });
+    txnsIn(k).forEach(t => { if (t.type === (type || 'expense')) daily[Number(t.date.slice(8, 10)) - 1] += t.amount; });
     let run = 0;
     return daily.map(v => (run += v));
   }
@@ -158,23 +158,52 @@
     const budget = totalBudget();
     const spentNow = cur[upTo - 1] || 0;
     const projected = isCurrent && upTo < days ? spentNow / upTo * days : 0;
-    const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected);
+    const inc = cumulativeSeries(k, 'income');
+    const hasInc = inc[upTo - 1] > 0;
+    const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected, hasInc ? inc[upTo - 1] : 0);
     const step = niceStep(top, H > 300 ? 5 : 4);
     const max = Math.ceil(top / step) * step;
     const x = (i, len) => P.l + (i / Math.max(1, len - 1)) * (W - P.l - P.r);
     const y = v => H - P.b - (v / max) * (H - P.t - P.b);
     const path = (arr, len) => arr.map((v, i) => (i ? 'L' : 'M') + x(i, len).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-    let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" style="--axis-fs:' + fs.toFixed(1) + 'px" role="img" aria-label="Cumulative spending this month compared with last month">';
+    let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" style="--axis-fs:' + fs.toFixed(1) + 'px" role="img" aria-label="Cumulative spending and income this month, compared with last month">';
     for (let v = 0; v <= max + 0.001; v += step) {
       svg += '<line class="grid-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (P.l - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + esc(compact(v)) + '</text>';
     }
     if (budget > 0) svg += '<line class="budget-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(budget) + '" y2="' + y(budget) + '"/><text class="axis budget-label" x="' + (W - P.r) + '" y="' + (y(budget) - 6) + '" text-anchor="end">Budget ' + esc(money0(budget)) + '</text>';
     if (prev[prev.length - 1] > 0) svg += '<path class="line-prev" d="' + path(prev, prev.length) + '"/>';
     const curPts = cur.slice(0, upTo);
-    svg += '<path class="line-area" d="' + path(curPts, days) + ' L' + x(upTo - 1, days) + ' ' + y(0) + ' L' + x(0, days) + ' ' + y(0) + ' Z"/>';
-    svg += '<path class="line-cur" d="' + path(curPts, days) + '"/>';
+    if (hasInc) {
+      // Shade the gap between income and spending: red where spending is ahead of income, dark where you're still in the black.
+      const incPts = inc.slice(0, upTo);
+      const segs = [];
+      let seg = null;
+      for (let i = 0; i < upTo; i++) {
+        const d = incPts[i] - curPts[i], sign = d >= 0;
+        if (seg && seg.sign !== sign) {
+          const d0 = incPts[i - 1] - curPts[i - 1], t = d0 / (d0 - d);
+          const xi = i - 1 + t, vi = curPts[i - 1] + (curPts[i] - curPts[i - 1]) * t;
+          seg.pts.push([xi, vi, vi]); segs.push(seg); seg = { sign, pts: [[xi, vi, vi]] };
+        }
+        if (!seg) seg = { sign, pts: [] };
+        seg.pts.push([i, incPts[i], curPts[i]]);
+      }
+      if (seg) segs.push(seg);
+      segs.forEach(g => {
+        if (g.pts.length < 2) return;
+        const top = g.pts.map((p, j) => (j ? 'L' : 'M') + x(p[0], days).toFixed(1) + ' ' + y(p[1]).toFixed(1)).join(' ');
+        const bot = g.pts.slice().reverse().map(p => 'L' + x(p[0], days).toFixed(1) + ' ' + y(p[2]).toFixed(1)).join(' ');
+        svg += '<path class="gap-' + (g.sign ? 'pos' : 'neg') + '" d="' + top + ' ' + bot + ' Z"/>';
+      });
+      svg += '<path class="line-income" d="' + path(incPts, days) + '"/>';
+    }
+    svg += '<path class="line-cur line-spend" d="' + path(curPts, days) + '"/>';
     if (projected) svg += '<path class="line-proj" d="M' + x(upTo - 1, days) + ' ' + y(spentNow) + ' L' + x(days - 1, days) + ' ' + y(projected) + '"/><text class="axis proj-label" x="' + (W - P.r) + '" y="' + (y(projected) + (y(projected) < P.t + 16 ? 14 : -6)) + '" text-anchor="end">On pace for ' + esc(money0(projected)) + '</text>';
-    svg += '<circle class="line-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
+    svg += '<circle class="line-dot line-spend-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
+    if (hasInc) {
+      const net = inc[upTo - 1] - spentNow;
+      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
+    }
     (fs > 16 ? [1, 15, days] : [1, 8, 15, 22, days]).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
     return svg + '</svg>';
   }
@@ -292,7 +321,7 @@
     html += strainBanner();
 
     html += '<div class="grid">';
-    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-cur">' + esc(monthName(viewMonth, { month: 'short' })) + '</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
+    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-spend">Spending</span><span class="lg lg-incline">Income</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
