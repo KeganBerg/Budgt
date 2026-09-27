@@ -1112,6 +1112,18 @@
     el.innerHTML = html;
   }
 
+  // Headline wording varies by habit and month, but stays put between page loads so it doesn't flicker.
+  const STRAIN_LINES = {
+    medium: ['{x} is a habit that is adding up.', '{x} keeps showing up in your spending.', 'Those {x} runs are starting to add up.', '{x} has become a regular expense.', 'Small {x} purchases are stacking up.', 'Your {x} spending has turned into a pattern.'],
+    high: ['{x} is putting a lot of strain on your budget.', '{x} is one of your biggest money leaks.', '{x} is taking a big bite out of your income.', 'Your {x} habit is costing you a lot.', '{x} is weighing heavily on your budget.'],
+  };
+  function strainHeadline(g) {
+    const lines = STRAIN_LINES[g.level === 'high' ? 'high' : 'medium'];
+    let h = 0;
+    for (const ch of g.key + monthKey(new Date())) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return lines[h % lines.length].replace('{x}', g.label);
+  }
+
   function strainBanner() {
     const high = findPatterns().filter(p => p.level === 'high' || p.level === 'medium');
     const dismissed = (state.dismissedStrain || {})[monthKey(new Date())] || [];
@@ -1119,7 +1131,7 @@
     if (!show.length) return '';
     const g = show[0];
     const m = patternMessage(g);
-    return '<div class="strain-banner" role="status"><span class="sb-icon" aria-hidden="true">!</span><div><b>' + esc(g.label) + (g.level === 'high' ? ' is putting a lot of strain on your budget.' : ' is a habit that is adding up.') + '</b><p>' + esc(m.text) + (show.length > 1 ? ' ' + (show.length - 1) + ' more habit' + (show.length > 2 ? 's' : '') + ' flagged.' : '') + '</p></div>' +
+    return '<div class="strain-banner" role="status"><span class="sb-icon" aria-hidden="true">!</span><div><b>' + esc(strainHeadline(g)) + '</b><p>' + esc(m.text) + (show.length > 1 ? ' ' + (show.length - 1) + ' more habit' + (show.length > 2 ? 's' : '') + ' flagged.' : '') + '</p></div>' +
       '<div class="row-actions"><a class="btn btn-sm" href="#budget/patterns">See patterns</a><button type="button" class="btn btn-ghost btn-sm" data-act="dismiss-strain" data-id="' + esc(g.key) + '">Dismiss</button></div></div>';
   }
 
