@@ -629,3 +629,7 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
   .tabs a { padding: 6px 0; gap: 3px; white-space: nowrap; min-width: 0; }
   .tabs a span { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 }
+@media (max-width: 760px) {
+  /* Two tabs left, three right: the left slots are wider so the + sits exactly in the middle. */
+  .tabs { grid-template-columns: 1.5fr 1.5fr 64px 1fr 1fr 1fr; }
+}
