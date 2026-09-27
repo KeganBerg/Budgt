@@ -1186,7 +1186,8 @@
     const lines = STRAIN_LINES[g.level === 'high' ? 'high' : 'medium'];
     let h = 0;
     for (const ch of g.key + monthKey(new Date())) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return lines[h % lines.length].replace('{x}', g.label);
+    const line = lines[h % lines.length];
+    return line.replace('{x}', line.startsWith('{x}') || g.kind === 'merchant' ? g.label : g.label.toLowerCase());
   }
 
   function strainBanner() {
@@ -1289,7 +1290,7 @@
     const isNew = !t;
     t = t || { type: 'expense', amount: '', date: viewMonth === monthKey(new Date()) ? todayISO() : viewMonth + '-01', merchant: '', categoryId: lastCategory(), note: '', items: [] };
     const body =
-      '<div class="scan-row"><label class="btn btn-ghost btn-sm scan-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Scan receipt</span><input type="file" id="scanFile" accept="image/*" hidden></label><span class="scan-status" id="scanStatus" role="status"></span></div>' +
+      '<div class="scan-row"><button type="button" class="btn btn-ghost btn-sm scan-btn" id="scanBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Scan receipt</span></button><input type="file" id="scanFile" accept="image/*" hidden><span class="scan-status" id="scanStatus" role="status"></span></div>' +
       '<div class="seg" role="radiogroup"><label><input type="radio" name="ttype" value="expense"' + (t.type === 'expense' ? ' checked' : '') + '><span>Expense</span></label><label><input type="radio" name="ttype" value="income"' + (t.type === 'income' ? ' checked' : '') + '><span>Income</span></label></div>' +
       '<div class="form-grid">' +
       field('Amount', '<input id="f-amount" inputmode="decimal" placeholder="0.00" value="' + (t.amount || '') + '" required>') +
@@ -1325,6 +1326,7 @@
       const inc = r.value === 'income' && r.checked;
       if (r.checked) $('#f-cat').innerHTML = catOptions(inc ? 'income' : (t.categoryId !== 'income' ? t.categoryId : ''), inc);
     }));
+    $('#scanBtn').addEventListener('click', () => $('#scanFile').click());
     $('#scanFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) scanReceipt(f); });
     $('#addItem').addEventListener('click', () => { $('#itemRows').insertAdjacentHTML('beforeend', itemRow()); $('#itemRows').lastElementChild.querySelector('input').focus(); updateItemsSum(); });
     $('#useItems').addEventListener('click', () => { const s = itemsTotal(); if (s > 0) $('#f-amount').value = s.toFixed(2); updateItemsSum(); });
@@ -1417,7 +1419,7 @@
     lines.forEach((l, i) => {
       if (totalIdx >= 0 && i >= totalIdx) return;
       const p = prices[i]; if (p == null || p === 0 || NOT_ITEM.test(l)) return;
-      let name = l.replace(PRICE_END, '').replace(/^[\d\s#@x*.-]+(?=[A-Za-z])/, '').replace(/\b\d{6,}\b/g, '').replace(/[^A-Za-z0-9&'%/ .-]/g, ' ').replace(/\s+/g, ' ').trim();
+      let name = l.replace(PRICE_END, '').replace(/^(?:[A-Z]\s+)?\d{4,}\s+/, '').replace(/^[\d\s#@x*.-]+(?=[A-Za-z])/, '').replace(/\b\d{6,}\b/g, '').replace(/[^A-Za-z0-9&'%/ .-]/g, ' ').replace(/\s+/g, ' ').trim();
       if ((name.match(/[A-Za-z]/g) || []).length < 2) return;
       name = name.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase()).slice(0, 40);
       items.push({ name, amount: round2(p) });
@@ -1485,6 +1487,7 @@
       $('#receiptBox').open = true;
     }
     updateItemsSum();
+    saveDraft();
     say('');
   }
 
