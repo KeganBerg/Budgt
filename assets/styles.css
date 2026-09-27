@@ -267,7 +267,6 @@ dialog form { padding: 20px; max-height: calc(100vh - 48px); overflow-y: auto; }
   .main { padding: 16px 16px 96px; }
   .topbar { gap: 10px; }
   .topbar h1 { font-size: 1.35rem; }
-  #addTxnBtn { position: fixed; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 21; box-shadow: 0 10px 24px -8px rgba(15, 118, 110, 0.6); padding: 12px 18px; }
   .month-picker { order: 3; width: 100%; justify-content: space-between; }
   .stats, .stats.three { grid-template-columns: 1fr 1fr; gap: 10px; }
   .stats.three .card:first-child { grid-column: 1 / -1; }
@@ -573,14 +572,14 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 .line-spend, .line-income, .line-prev, .line-proj, .line-spend-dot { vector-effect: non-scaling-stroke; }
 
 /* ---------- mobile app layout ---------- */
-.tab-add, .lbl-short, #monthLabelShort { display: none; }
+.fab, .lbl-short, #monthLabelShort { display: none; }
 @media (max-width: 760px) {
-  /* One add button: the + in the tab bar replaces the floating one. */
+  /* Add transaction floats bottom right, where a thumb already is. */
   #addTxnBtn { display: none; }
-  .tab-add { display: flex; flex: 1; align-items: center; justify-content: center; background: none; border: 0; padding: 0; cursor: pointer; }
-  .tab-add-circle { width: 46px; height: 46px; border-radius: 14px; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; }
-  .tab-add-circle svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-  .tab-add:active .tab-add-circle { transform: scale(0.94); }
+  .fab { display: grid; place-items: center; position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 21; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%; background: var(--brand); color: var(--on-brand); cursor: pointer; box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.35); }
+  .fab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+  .fab:active { transform: scale(0.94); }
+  .fab:focus-visible { outline: 3px solid var(--brand-soft); outline-offset: 2px; }
   .lbl-long, #monthLabel { display: none; }
   .lbl-short, #monthLabelShort { display: inline; }
   .tabs { align-items: center; }
@@ -589,7 +588,7 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
   .sidebar { background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 
   /* Compact sticky header: title, month and calculator on one row. */
-  .main { padding: 0 16px calc(92px + env(safe-area-inset-bottom)); }
+  .main { padding: 0 16px calc(156px + env(safe-area-inset-bottom)); }
   .topbar { position: sticky; top: 0; z-index: 15; flex-wrap: nowrap; gap: 8px; margin: 0 -16px 14px; padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
     background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid transparent; }
   .topbar h1 { font-size: 1.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -624,14 +623,10 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 @keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { dialog { animation: none; } }
 @media (max-width: 760px) {
-  /* Six equal slots so labels never crowd each other. */
-  .tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; justify-content: stretch; }
+  /* Five equal slots so labels never crowd each other. */
+  .tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; justify-content: stretch; }
   .tabs a { padding: 6px 0; gap: 3px; white-space: nowrap; min-width: 0; }
   .tabs a span { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-}
-@media (max-width: 760px) {
-  /* Two tabs left, three right: the left slots are wider so the + sits exactly in the middle. */
-  .tabs { grid-template-columns: 1.5fr 1.5fr 64px 1fr 1fr 1fr; }
 }
 
 /* ---------- receipt scanning ---------- */
@@ -661,3 +656,5 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
   .plan-table td small { display: block; }
 }
 @media (max-width: 360px) { .plan-table { font-size: 0.74rem; } .plan-table th, .plan-table td { padding-left: 2px; padding-right: 2px; } }
+/* The header is already sticky on phones; a second sticky bar would slide under it. */
+@media (max-width: 760px) { .view-totals { position: static; } }
