@@ -641,3 +641,23 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 .scan-status { font-size: 0.8rem; color: var(--muted); }
 .scan-status.pos { color: var(--pos); } .scan-status.neg { color: var(--neg); }
 @media (max-width: 760px) { .scan-btn { width: 100%; justify-content: center; padding: 12px; } .scan-status { width: 100%; text-align: center; } }
+/* On phones the icon can sit anywhere in a row, so show the tip as a strip above the tab bar instead of beside it. */
+@media (max-width: 760px) {
+  .info::after { position: fixed; top: auto; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); width: auto; max-width: none; }
+}
+@media (max-width: 900px) {
+  .plans-layout { grid-template-columns: minmax(0, 1fr); }
+  .plan-list { grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); }
+}
+/* Narrow phones: name on the first line, type, limit and delete on the second. */
+@media (max-width: 420px) {
+  .budget-rows li { flex-wrap: wrap; gap: 8px 10px; }
+  .budget-rows .br-name { flex-basis: calc(100% - 60px); }
+  .budget-rows .tag-btn { margin-left: 46px; }
+  .budget-rows .money-input { flex: 1; width: auto; min-width: 0; }
+}
+@media (max-width: 420px) {
+  .plan-table th { white-space: normal; }
+  .plan-table td small { display: block; }
+}
+@media (max-width: 360px) { .plan-table { font-size: 0.74rem; } .plan-table th, .plan-table td { padding-left: 2px; padding-right: 2px; } }

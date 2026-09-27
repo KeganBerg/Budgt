@@ -486,7 +486,7 @@
     if (!cats.length) { bubbleData = null; return '<p class="muted">Set monthly limits on the <a href="#budget">Budget</a> page to track them here.</p>'; }
     const live = cats.filter(x => x.s > 0), idle = cats.filter(x => !(x.s > 0));
     bubbleData = live;
-    return '<div class="bubbles"><div class="bubble-stage" id="bubbleStage" role="img" aria-label="Spending by category as bubbles, largest first: ' + esc(live.map(x => x.c.name + ' ' + money0(x.s)).join(', ')) + '">' +
+    return '<div class="bubbles"><div class="bubble-stage" id="bubbleStage" role="group" aria-label="Spending by category, sized by amount">' +
       (live.length ? '<svg id="bubbleSvg"></svg><div class="bubble-tip" id="bubbleTip" hidden></div>' : '<p class="muted">No spending yet this month.</p>') + '</div>' +
       '<div class="bubble-side"><ol class="bubble-rank">' + live.map((x, i) => {
         const over = x.c.budget > 0 && x.s > x.c.budget;
@@ -1338,12 +1338,13 @@
   // Text recognition runs in the browser with Tesseract.js; the photo never leaves the device.
   // Only the recognition engine and its English data are downloaded, the first time you scan.
   const TESS_JS = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+  const TESS_SRI = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F';
   const TESS_LANG = 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int';
   let tessLoading = null;
   function loadTesseract() {
     if (window.Tesseract) return Promise.resolve();
     return tessLoading || (tessLoading = new Promise((ok, no) => {
-      const sc = document.createElement('script'); sc.src = TESS_JS; sc.async = true;
+      const sc = document.createElement('script'); sc.src = TESS_JS; sc.async = true; sc.crossOrigin = 'anonymous'; sc.integrity = TESS_SRI;
       sc.onload = ok; sc.onerror = () => { tessLoading = null; no(new Error('load')); };
       document.head.appendChild(sc);
     }));
@@ -1375,7 +1376,13 @@
       }
     });
     const prices = lines.map(price);
-    if (total == null) { const ps = prices.filter(p => p > 0); if (ps.length) { total = Math.max(...ps); totalIdx = prices.lastIndexOf(total); } }
+    if (total == null) {
+      // No "total" line: trust a card charge, never cash handed over or change; otherwise stop at the first payment line.
+      const card = lines.findIndex((l, i) => prices[i] > 0 && /visa|master|amex|discover|debit|credit|card/i.test(l));
+      const pay = lines.findIndex((l, i) => prices[i] > 0 && /cash|tender|change|visa|master|amex|discover|debit|credit|card|payment/i.test(l));
+      if (card >= 0) { total = prices[card]; totalIdx = card; }
+      else if (pay >= 0) totalIdx = pay;
+    }
     // Items: priced lines above the total that aren't payment or tax lines.
     const items = [];
     lines.forEach((l, i) => {
@@ -1386,13 +1393,14 @@
       name = name.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase()).slice(0, 40);
       items.push({ name, amount: round2(p) });
     });
+    if (total == null && items.length) total = round2(items.reduce((a, it) => a + it.amount, 0));
     // Date: first date-looking string that isn't in the future.
     let date = null;
     const today = todayISO();
     for (const l of lines) {
       let m = l.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/), y, mo, da;
       if (m) { y = +m[1]; mo = +m[2]; da = +m[3]; }
-      else if ((m = l.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2}|\d{4})\b/))) { mo = +m[1]; da = +m[2]; y = +m[3]; if (y < 100) y += 2000; }
+      else if ((m = l.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2}|\d{4})\b/))) { mo = +m[1]; da = +m[2]; y = +m[3]; if (y < 100) y += 2000; if (mo > 12 && da <= 12) [mo, da] = [da, mo]; }
       if (!m || mo < 1 || mo > 12 || da < 1 || da > 31) continue;
       const iso = y + '-' + String(mo).padStart(2, '0') + '-' + String(da).padStart(2, '0');
       if (iso <= today && iso >= shiftMonth(today.slice(0, 7), -18)) { date = iso; break; }
@@ -1402,7 +1410,7 @@
     for (const l of lines.slice(0, 6)) {
       const letters = (l.match(/[A-Za-z]/g) || []).length;
       if (letters < 3 || letters < l.replace(/\s/g, '').length * 0.6) continue;
-      if (/\d{3}[-.\s)]\d{3}|www\.|\.com|street|st\.|ave|road|rd\.|blvd|suite|receipt|welcome|store\s*#|tel|phone/i.test(l)) continue;
+      if (/^\d/.test(l) || /\d{3}[-.\s)]\d{3}|www\.|\.com|street|\b(st|ave|rd|blvd|dr|ln|hwy|pkwy)\b\.?|road|suite|receipt|welcome|store\s*#|tel|phone/i.test(l)) continue;
       merchant = l.replace(/[^A-Za-z0-9&' .-]/g, '').trim();
       if (merchant === merchant.toUpperCase()) merchant = merchant.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase());
       break;
@@ -1413,19 +1421,22 @@
   async function scanReceipt(file) {
     const status = $('#scanStatus');
     const say = (txt, cls) => { if (status) { status.textContent = txt; status.className = 'scan-status ' + (cls || ''); } };
+    const form = $('#f-amount');   // the form this scan belongs to; ignore the result if it was closed or replaced
     say('Reading receipt…');
-    let text;
+    let text, worker;
     try {
       await loadTesseract();
       const canvas = await prepReceipt(file);
-      const worker = await Tesseract.createWorker('eng', 1, { langPath: TESS_LANG, logger: m => { if (m.status === 'recognizing text') say('Reading receipt… ' + Math.round(m.progress * 100) + '%'); } });
+      worker = await Tesseract.createWorker('eng', 1, { langPath: TESS_LANG, logger: m => { if (m.status === 'recognizing text') say('Reading receipt… ' + Math.round(m.progress * 100) + '%'); } });
       ({ data: { text } } = await worker.recognize(canvas));
-      await worker.terminate();
     } catch (err) {
+      if (!form || !form.isConnected) return;
       say('Couldn\'t load the scanner. Check your connection and try again.', 'neg');
       return;
+    } finally {
+      if (worker) worker.terminate().catch(() => {});
     }
-    if (!modal.open || !$('#f-amount')) return;
+    if (!modal.open || !form || !form.isConnected) return;
     const r = parseReceipt(text || '');
     if (!r.total && !r.items.length) { say('Couldn\'t find prices. Try a flat, well-lit photo.', 'neg'); return; }
     const exp = modal.querySelector('input[name=ttype][value="expense"]');
