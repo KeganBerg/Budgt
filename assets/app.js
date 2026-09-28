@@ -449,18 +449,22 @@
     return '<div class="card stat"><p class="stat-label">' + label + (note ? info(note) : '') + '</p><p class="stat-value' + (!sub && tone ? ' ' + tone : '') + '">' + value + '</p>' + (sub ? '<p class="stat-sub ' + (tone || '') + '">' + sub + '</p>' : '') + '</div>';
   }
 
+  // Bills and debt payments due in month k: a debt paid down to $0 has nothing due (unless it was paid off that month).
+  function dueIn(k) { return state.liabilities.filter(l => !(l.type === 'debt' && !(l.balance > 0) && !paymentFor(l.id, k))); }
+
   function upcomingBills() {
     if (!state.liabilities.length) return '<p class="muted">No bills yet. <a href="#liabilities">Add your rent, subscriptions or loan payments.</a></p>';
     const k = viewMonth;
     const days = daysInMonth(k);
-    const rows = state.liabilities.slice().sort((a, b) => (a.dueDay || 1) - (b.dueDay || 1)).map(l => {
+    const due = dueIn(k);
+    const rows = due.slice().sort((a, b) => (a.dueDay || 1) - (b.dueDay || 1)).map(l => {
       const paid = paymentFor(l.id, k);
       const d = Math.min(l.dueDay || 1, days);
       return '<li class="bill' + (paid ? ' paid' : '') + '"><span class="bill-date"><b>' + d + '</b>' + esc(monthName(k, { month: 'short' })) + '</span><span class="bill-name"><b>' + esc(l.name) + '</b><small>' + money(l.payment) + ' · ' + (l.type === 'debt' ? 'Debt payment' : 'Bill') + '</small></span>' +
         (paid ? '<button class="chip chip-done" data-act="unpay" data-id="' + l.id + '" title="Undo">Paid</button>' : k > monthKey(new Date()) ? '<span class="chip chip-later">Upcoming</span>' : '<button class="chip" data-act="pay" data-id="' + l.id + '">Mark paid</button>') + '</li>';
     });
-    const total = state.liabilities.reduce((a, l) => a + (l.payment || 0), 0);
-    const paidTotal = state.liabilities.reduce((a, l) => a + (paymentFor(l.id, k) ? l.payment || 0 : 0), 0);
+    const total = due.reduce((a, l) => a + (l.payment || 0), 0);
+    const paidTotal = due.reduce((a, l) => a + (paymentFor(l.id, k) ? l.payment || 0 : 0), 0);
     return '<p class="muted small">' + money0(paidTotal) + ' of ' + money0(total) + ' paid this month</p><ul class="bills">' + rows.join('') + '</ul>';
   }
 
@@ -858,7 +862,7 @@
     const el = $('#view-liabilities');
     const debts = state.liabilities.filter(l => l.type === 'debt');
     const bills = state.liabilities.filter(l => l.type !== 'debt');
-    const monthly = state.liabilities.reduce((a, l) => a + (l.payment || 0), 0);
+    const monthly = dueIn(monthKey(new Date())).reduce((a, l) => a + (l.payment || 0), 0);
     const debtTotal = debts.reduce((a, l) => a + (l.balance || 0), 0);
     let html = '<div class="stats three">' + statCard('Monthly bills and payments', money(monthly), state.liabilities.length + ' total', '') +
       statCard('Total debt', money(debtTotal), debts.length + ' accounts', '') +
@@ -955,7 +959,7 @@
       const rem = Math.max(0, g.target - g.saved);
       if (!rem) return a;
       if (g.monthly > 0) return a + g.monthly;
-      if (g.date) return a + rem / Math.max(1, monthsUntil(g.date));
+      if (g.date && monthsUntil(g.date) >= 0) return a + rem / Math.max(1, monthsUntil(g.date));
       return a;
     }, 0);
   }
@@ -993,6 +997,8 @@
       S = I * plan.save;
       const over = N - I * plan.needs;
       if (over > 0) { W -= over; notes.push('Your essentials are ' + Math.round(N / Math.max(1, I) * 100) + '% of income, above this plan\'s ' + Math.round(plan.needs * 100) + '%. The difference comes out of wants first; essentials are not cut.'); }
+      // Needs under the plan's share: the spare money would otherwise go nowhere, so it's saved.
+      else if (over < 0) { S -= over; notes.push('Your needs are ' + Math.round(N / Math.max(1, I) * 100) + '% of income, under this plan\'s ' + Math.round(plan.needs * 100) + '%, so the spare ' + money0(-over) + '/mo goes to savings.'); }
     }
     if (W < 0) { S += W; X = Math.max(0, X + Math.min(0, S)); if (S > 0) notes.push('Your needs are more than this plan\'s share of income, so wants are set to $0 and savings shrink by ' + money0(-W) + ' to cover the rest. Essentials are not cut.'); W = 0; }
     // Keep wants realistic: never more than 10% above what you actually spend; the surplus is saved instead.
@@ -1807,6 +1813,16 @@
       if (!s || !Array.isArray(s.categories) || !Array.isArray(s.transactions)) throw new Error('bad');
       const okTxn = t => t && typeof t.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && isFinite(t.amount) && (t.type === 'expense' || t.type === 'income');
       if (!s.transactions.every(okTxn) || !s.categories.every(c => c && typeof c.id === 'string' && typeof c.name === 'string')) throw new Error('bad');
+      const idOk = x => x && /^[A-Za-z0-9_-]{1,40}$/.test(x.id);
+      const n0 = v => (isFinite(+v) ? +v : 0);
+      s.liabilities = Array.isArray(s.liabilities) ? s.liabilities : [];
+      s.goals = Array.isArray(s.goals) ? s.goals : [];
+      if (![s.transactions, s.categories, s.liabilities, s.goals].every(list => list.every(idOk))) throw new Error('bad');
+      s.transactions.forEach(t => { t.amount = +t.amount; if (!Array.isArray(t.items)) t.items = []; t.items = t.items.filter(i => i && typeof i.name === 'string').map(i => ({ name: i.name, amount: n0(i.amount) })); });
+      s.categories.forEach(c => { c.budget = n0(c.budget); });
+      s.liabilities.forEach(l => { l.name = String(l.name || ''); ['payment', 'balance', 'apr', 'dueDay'].forEach(f => { l[f] = n0(l[f]); }); });
+      s.goals.forEach(g => { g.name = String(g.name || ''); ['target', 'saved', 'monthly'].forEach(f => { g[f] = n0(g[f]); }); if (!/^\d{4}-\d{2}(-\d{2})?$/.test(g.date || '')) g.date = ''; });
+      s.income = n0(s.income);
       if (confirm('Replace everything in Budgt with this backup?')) { state = Object.assign(blankState(), s); save(); }
     }).catch(() => alert('That file isn\'t a Budgt backup.')).finally(() => { e.target.value = ''; });
   });

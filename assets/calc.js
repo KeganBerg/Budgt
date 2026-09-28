@@ -21,17 +21,21 @@
     if (!s) return null;
     let i = 0;
     const peek = () => s[i];
+    let pctTerm = false;   // the last term was a bare "n%"
     function expr() {
       let v = term();
-      while (peek() === '+' || peek() === '-') { const op = s[i++]; const r = term(); v = op === '+' ? v + r : v - r; }
+      while (peek() === '+' || peek() === '-') { const op = s[i++]; let r = term(); if (pctTerm) r = v * r; v = op === '+' ? v + r : v - r; }
       return v;
     }
     function term() {
+      const start = i;
       let v = factor();
+      pctTerm = s[i - 1] === '%' && /^[+-]?[\d.]+%$/.test(s.slice(start, i));
       while (peek() === '*' || peek() === '/') {
         const op = s[i++]; const r = factor();
         if (op === '/' && r === 0) throw new Error("Can't divide by zero");
         v = op === '*' ? v * r : v / r;
+        pctTerm = false;
       }
       return v;
     }
