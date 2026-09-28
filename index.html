@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-title" content="Budgt">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
@@ -80,6 +80,51 @@
         <button type="button" class="btn btn-ghost" data-close>Cancel</button>
         <button type="submit" class="btn" id="modalSave">Save</button>
       </footer>
+    </form>
+  </dialog>
+
+  <dialog id="chartGuide" class="guide" aria-labelledby="chartGuideTitle">
+    <form method="dialog">
+      <header class="modal-head">
+        <h2 id="chartGuideTitle">Reading your spending chart</h2>
+        <button class="icon-btn" aria-label="Close">✕</button>
+      </header>
+      <p class="guide-intro">Each line is a running total. It starts at zero on the 1st and climbs as money moves, so a steep stretch is a heavy day and a flat stretch is a quiet one.</p>
+
+      <h3>The lines</h3>
+      <dl class="guide-keys">
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="line-cur line-spend" d="M2 6h24"/></svg>Spending</dt><dd>Everything you've spent this month so far. The dot is today.</dd></div>
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="line-income" d="M2 6h24"/></svg>Income</dt><dd>Everything you've been paid this month. It jumps on paydays.</dd></div>
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><rect class="gap-neg" x="2" y="1" width="24" height="10" rx="2"/></svg>Red gap</dt><dd>Spending is above income: more has gone out than has come in so far.</dd></div>
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><rect class="gap-pos" x="2" y="1" width="24" height="10" rx="2"/></svg>Grey gap</dt><dd>Income is ahead of spending. This is where you want to be.</dd></div>
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="line-prev" d="M2 6h24"/></svg>Last month</dt><dd>Where you were on the same day last month. Staying under it means you're spending less.</dd></div>
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="budget-line" d="M2 6h24"/></svg>Budget</dt><dd>Your total monthly budget. The spending line should finish the month below it.</dd></div>
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="line-proj" d="M2 10L26 2"/></svg>Pace</dt><dd>Where you'll finish if you keep spending at your daily average. Shown for the current month only.</dd></div>
+      </dl>
+      <p class="guide-note"><b>Net so far</b>, top left, is income minus spending to date. It turns red when it's negative.</p>
+      <p class="guide-note"><b>Hover over the chart</b>, or tap it on a phone, to see both totals for that day and how far apart they are.</p>
+
+      <h3>The numbers</h3>
+      <dl class="guide-terms">
+        <div><dt>Spent so far</dt><dd>Total spending this month up to today.</dd></div>
+        <div><dt>Last month</dt><dd>What you had spent by this day last month. Red when you're ahead of it.</dd></div>
+        <div><dt>Daily average</dt><dd>Spent so far divided by the days that have passed.</dd></div>
+        <div><dt>Safe per day</dt><dd>Budget left divided by days left. Red $0 means the budget is already used up.</dd></div>
+      </dl>
+
+      <h3>A healthy month looks like</h3>
+      <p class="guide-note">The spending line stays under the green line, ends below the budget line, and the pace label lands under your budget.</p>
+
+      <h3>Habits that move the lines</h3>
+      <ol class="guide-steps">
+        <li><b>Check the pace once a week.</b> If it points above your budget, trim now while there are still days to make up the difference.</li>
+        <li><b>Spend from Safe per day, not your balance.</b> It already accounts for the rest of the month.</li>
+        <li><b>Read the red gap against payday.</b> Red before payday is often just timing. Red that's still there after payday means you're spending more than you earn.</li>
+        <li><b>Look into the steep steps.</b> Each sharp climb is a big day. Open Transactions and ask whether it was planned.</li>
+        <li><b>Save right after payday.</b> Add money to a goal first, so what's left is what you can spend.</li>
+        <li><b>Leave a buffer.</b> Set your budget a little below your income so the spending line has room to land under the green one.</li>
+        <li><b>Aim to beat last month, not to be perfect.</b> Finishing a little under the dashed line each month adds up.</li>
+      </ol>
     </form>
   </dialog>
 

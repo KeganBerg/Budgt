@@ -213,7 +213,9 @@
     svg += '<circle class="line-dot line-spend-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
     if (hasInc) {
       const net = inc[upTo - 1] - spentNow;
-      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
+      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';      // Hover or tap a day to see the gap between income and spending (wired up in initChartHover).
+      svg += '<g class="hover-mark" visibility="hidden"><line class="hover-line" y1="' + P.t + '" y2="' + (H - P.b) + '"/><circle class="hover-dot hd-inc" r="4"/><circle class="hover-dot hd-spend" r="4"/></g>';
+      svg = svg.replace('<svg class="chart"', '<svg class="chart has-hover" data-hover="' + esc(JSON.stringify({ k: k, cur: curPts.map(round2), inc: inc.slice(0, upTo).map(round2), days: days, l: P.l, r: W - P.r, max: max, top: P.t, bottom: H - P.b })) + '"');
     }
     (fs > 16 ? [1, 15, days] : (() => { const every = screenW > 1000 ? 3 : screenW > 700 ? 5 : 7, out = []; for (let d = 1; d <= days - Math.ceil(every * 0.8); d += every) out.push(d); return out.concat(days); })()).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
     return svg + '</svg>';
@@ -281,6 +283,47 @@
       svg.style.setProperty('--axis-fs', (11 * svg.viewBox.baseVal.width / svg.clientWidth).toFixed(1) + 'px');
     });
   }
+  // Flyout over the spending chart: which day you're on, both totals and the gap between them.
+  function initChartHover() {
+    let tip;
+    const hide = () => {
+      if (tip) tip.hidden = true;
+      document.querySelectorAll('.chart.has-hover .hover-mark').forEach(g => g.setAttribute('visibility', 'hidden'));
+    };
+    const show = (svg, clientX) => {
+      const d = JSON.parse(svg.dataset.hover);
+      const pt = svg.createSVGPoint(); pt.x = clientX; pt.y = 0;
+      const sx = pt.matrixTransform(svg.getScreenCTM().inverse()).x;
+      const n = d.cur.length;
+      if (!n || sx < d.l - 10 || sx > d.r + 10) return hide();
+      const step = (d.r - d.l) / Math.max(1, d.days - 1);
+      const i = Math.max(0, Math.min(n - 1, Math.round((sx - d.l) / step)));
+      const x = d.l + i * step, y = v => d.bottom - (v / d.max) * (d.bottom - d.top);
+      const g = svg.querySelector('.hover-mark');
+      g.querySelector('line').setAttribute('x1', x); g.querySelector('line').setAttribute('x2', x);
+      g.querySelector('.hd-spend').setAttribute('cx', x); g.querySelector('.hd-spend').setAttribute('cy', y(d.cur[i]));
+      g.querySelector('.hd-inc').setAttribute('cx', x); g.querySelector('.hd-inc').setAttribute('cy', y(d.inc[i]));
+      g.setAttribute('visibility', 'visible');
+      const wrap = svg.parentElement;
+      if (!tip || !wrap.contains(tip)) { tip = document.createElement('div'); tip.className = 'chart-tip'; tip.setAttribute('role', 'status'); wrap.appendChild(tip); }
+      const net = d.inc[i] - d.cur[i];
+      tip.innerHTML = '<b>' + esc(monthName(d.k, { month: 'short' })) + ' ' + (i + 1) + '</b>' +
+        '<span><i class="tip-key tip-inc"></i>Income<em>' + esc(money0(d.inc[i])) + '</em></span>' +
+        '<span><i class="tip-key tip-spend"></i>Spent<em>' + esc(money0(d.cur[i])) + '</em></span>' +
+        '<span class="tip-net ' + (net < 0 ? 'neg' : '') + '">' + (net < 0 ? 'Spent more by' : net > 0 ? 'Ahead by' : 'Even') + '<em>' + (net ? esc(money0(Math.abs(net))) : '') + '</em></span>';
+      tip.hidden = false;
+      const wr = wrap.getBoundingClientRect(), sr = svg.getBoundingClientRect(), scale = sr.width / svg.viewBox.baseVal.width;
+      const px = sr.left - wr.left + x * scale, tw = tip.offsetWidth;
+      const left = px + 12 + tw > wr.width ? px - 12 - tw : px + 12;
+      tip.style.left = Math.max(0, left) + 'px';
+      tip.style.top = (sr.top - wr.top + y(Math.max(d.cur[i], d.inc[i])) * scale) + 'px';
+    };
+    document.addEventListener('pointermove', e => { const svg = e.target.closest && e.target.closest('.chart.has-hover'); if (svg) show(svg, e.clientX); else if (e.pointerType === 'mouse') hide(); });
+    document.addEventListener('pointerdown', e => { const svg = e.target.closest && e.target.closest('.chart.has-hover'); if (svg) show(svg, e.clientX); else hide(); });
+    document.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hide(); });
+    window.addEventListener('scroll', () => { if (tip && !tip.hidden && matchMedia('(hover: none)').matches) hide(); }, { passive: true });
+  }
+  initChartHover();
   let fitTimer;
   window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { if (currentView() === 'dashboard') renderDashboard(); else fitAxisText(document); }, 150); });
 
@@ -360,7 +403,7 @@
     html += strainBanner();
 
     html += '<div class="grid">';
-    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month</h3><div class="legend"><span class="lg lg-spend">Spending</span><span class="lg lg-incline">Income</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
+    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Spending this month<button type="button" class="link-btn guide-link" data-act="chart-guide" aria-haspopup="dialog">How to read this</button></h3><div class="legend"><span class="lg lg-spend">Spending</span><span class="lg lg-incline">Income</span><span class="lg lg-prev">' + esc(monthName(shiftMonth(viewMonth, -1), { month: 'short' })) + '</span>' + (viewMonth === monthKey(new Date()) ? '<span class="lg lg-proj">Pace</span>' : '') + '</div></div>' + spendingSummary(viewMonth) + '<div class="chart-fill">' + lineChart(viewMonth) + '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
@@ -1679,6 +1722,7 @@
       case 'edit-goal': goalForm(state.goals.find(g => g.id === id)); break;
       case 'contribute': contributeForm(state.goals.find(g => g.id === id)); break;
       case 'add-cat': catForm(); break;
+      case 'chart-guide': $('#chartGuide').showModal(); break;
       case 'pick-plan': selectedPlan = id; render(); break;
       case 'apply-plan': applyPlan(id); break;
       case 'use-income': state.income = detectedIncome(); save(); break;
