@@ -80,13 +80,25 @@
   const fmt0 = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function money(n) { return fmt.format(n || 0); }
   function money0(n) { return fmt0.format(n || 0); }
-  function num(v) { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : NaN; }
+  function num(v) {
+    let t = String(v).trim();
+    if (/^-?\$?\s?\d+,\d{1,2}$/.test(t)) t = t.replace(',', '.');   // decimal comma, e.g. 12,50
+    const n = parseFloat(t.replace(/[^0-9.\-]/g, ''));
+    return isFinite(n) ? n : NaN;
+  }
   function round2(n) { return Math.round(n * 100) / 100; }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // The item as it is in state now (another tab's save replaces state); re-added if that tab deleted it.
+  function fresh(list, obj) {
+    const cur = list.find(x => x.id === obj.id);
+    if (cur) return cur;
+    list.push(obj);
+    return obj;
+  }
   function catById(id) { return id === 'income' ? INCOME_CATEGORY : state.categories.find(c => c.id === id) || { id: '', name: 'Uncategorized' }; }
   function catColor(id) { const i = state.categories.findIndex(c => c.id === id); return i < 0 ? '#94a3b8' : PALETTE[i % PALETTE.length]; }
 
@@ -135,7 +147,9 @@
   // Put back what a logged debt payment took off the balance (the reverse of Mark paid).
   function refundDebtPayment(t) {
     const l = debtFor(t);
-    if (l) { const r = (l.apr || 0) / 100 / 12; l.balance = round2((l.balance + t.amount) / (1 + r)); }
+    if (!l) return;
+    if (typeof t.balanceDelta === 'number') l.balance = round2(l.balance + t.balanceDelta);
+    else { const r = (l.apr || 0) / 100 / 12; l.balance = round2((l.balance + t.amount) / (1 + r)); }   // payments logged before balanceDelta existed
   }
 
   // ---------- charts (plain SVG) ----------
@@ -382,7 +396,7 @@
       const paid = paymentFor(l.id, k);
       const d = Math.min(l.dueDay || 1, days);
       return '<li class="bill' + (paid ? ' paid' : '') + '"><span class="bill-date"><b>' + d + '</b>' + esc(monthName(k, { month: 'short' })) + '</span><span class="bill-name"><b>' + esc(l.name) + '</b><small>' + money(l.payment) + ' · ' + (l.type === 'debt' ? 'Debt payment' : 'Bill') + '</small></span>' +
-        (paid ? '<button class="chip chip-done" data-act="unpay" data-id="' + l.id + '" title="Undo">Paid</button>' : '<button class="chip" data-act="pay" data-id="' + l.id + '">Mark paid</button>') + '</li>';
+        (paid ? '<button class="chip chip-done" data-act="unpay" data-id="' + l.id + '" title="Undo">Paid</button>' : k > monthKey(new Date()) ? '<span class="chip chip-later">Upcoming</span>' : '<button class="chip" data-act="pay" data-id="' + l.id + '">Mark paid</button>') + '</li>';
     });
     const total = state.liabilities.reduce((a, l) => a + (l.payment || 0), 0);
     const paidTotal = state.liabilities.reduce((a, l) => a + (paymentFor(l.id, k) ? l.payment || 0 : 0), 0);
@@ -715,7 +729,8 @@
     el.innerHTML = '<div class="card"><div class="toolbar"><input type="search" id="txnSearch" aria-label="Search transactions" placeholder="Search merchants, notes, receipt items" value="' + esc(txnFilter.q) + '"><select id="txnCat" aria-label="Filter by category">' + opts + '</select></div>' +
       viewTotals(list, all.length) + txnList(list, false) + '</div>';
     const s = $('#txnSearch');
-    s.addEventListener('input', () => { txnFilter.q = s.value; const pos = s.selectionStart; renderTransactions(); const n = $('#txnSearch'); n.focus(); n.setSelectionRange(pos, pos); });
+    s.addEventListener('compositionend', () => s.dispatchEvent(new Event('input')));
+    s.addEventListener('input', e => { if (e.isComposing) return; txnFilter.q = s.value; const pos = s.selectionStart; renderTransactions(); const n = $('#txnSearch'); n.focus(); n.setSelectionRange(pos, pos); });
     $('#txnCat').addEventListener('change', e => { txnFilter.cat = e.target.value; renderTransactions(); });
     const clr = $('#clearFilters');
     if (clr) clr.addEventListener('click', () => { txnFilter = { q: '', cat: '' }; renderTransactions(); });
@@ -1313,11 +1328,16 @@
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail('Pick a date.');
       const items = readItems();
       if (items === null) return fail('Each receipt item needs a name and an amount.');
+      if (!isNew) t = fresh(state.transactions, t);
       const rec = isNew ? { id: uid(), created: Date.now() } : t;
       // A changed debt payment moves the debt balance by the difference.
       const debt = !isNew && debtFor(t);
-      if (debt && type === 'expense') debt.balance = round2(Math.max(0, debt.balance - (round2(amount) - t.amount)));
-      else if (debt) refundDebtPayment(t);
+      if (debt && type === 'expense' && t.balanceDelta !== 0) {
+        // Move the balance by the change in amount (only for payments that reduced it in the first place).
+        const before = debt.balance;
+        debt.balance = round2(Math.max(0, debt.balance - (round2(amount) - t.amount)));
+        if (typeof t.balanceDelta === 'number') t.balanceDelta = round2(t.balanceDelta + before - debt.balance);
+      } else if (debt) refundDebtPayment(t);
       Object.assign(rec, { type, amount: round2(amount), date, merchant: val('f-merchant'), categoryId: type === 'income' ? 'income' : val('f-cat'), note: val('f-note'), items });
       if (debt && type !== 'expense') delete rec.liabilityId;
       if (isNew) state.transactions.push(rec);
@@ -1511,9 +1531,18 @@
     wrap.classList.add('ac-wrap');
     const box = document.createElement('ul');
     box.className = 'ac-list'; box.hidden = true; box.setAttribute('role', 'listbox');
+    box.id = 'ac-' + uid();
     input.after(box);
     input.setAttribute('autocomplete', 'off');
+    input.setAttribute('role', 'combobox');
     input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', box.id);
+    input.setAttribute('aria-expanded', 'false');
+    const mark = () => {
+      box.querySelectorAll('li').forEach((li, i) => { li.classList.toggle('on', i === active); li.setAttribute('aria-selected', i === active ? 'true' : 'false'); });
+      if (active >= 0 && !box.hidden) input.setAttribute('aria-activedescendant', box.id + '-' + active); else input.removeAttribute('aria-activedescendant');
+      input.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+    };
     let items = [], active = -1;
     function show() {
       const q = input.value.trim().toLowerCase();
@@ -1521,11 +1550,12 @@
       items = all.filter(e => !q || e.value.toLowerCase().includes(q)).filter(e => e.value.toLowerCase() !== q)
         .sort((a, b) => (b.value.toLowerCase().startsWith(q) - a.value.toLowerCase().startsWith(q)) || b.count - a.count).slice(0, 6);
       active = items.length && q ? 0 : -1;
-      if (!items.length) { box.hidden = true; return; }
-      box.innerHTML = items.map((e, i) => '<li role="option" data-i="' + i + '" class="' + (i === active ? 'on' : '') + '"><span>' + esc(e.value) + '</span>' + (e.sub ? '<small>' + esc(e.sub) + '</small>' : '') + '</li>').join('');
+      if (!items.length) { box.hidden = true; mark(); return; }
+      box.innerHTML = items.map((e, i) => '<li role="option" id="' + box.id + '-' + i + '" data-i="' + i + '" class="' + (i === active ? 'on' : '') + '"><span>' + esc(e.value) + '</span>' + (e.sub ? '<small>' + esc(e.sub) + '</small>' : '') + '</li>').join('');
       box.hidden = false;
+      mark();
     }
-    function hide() { box.hidden = true; active = -1; }
+    function hide() { box.hidden = true; active = -1; mark(); }
     function choose(i) { const e = items[i]; if (!e) return; input.value = e.value; hide(); if (onPick) onPick(e); input.dispatchEvent(new Event('input', { bubbles: true })); hide(); }
     input.addEventListener('input', e => { if (e.isTrusted) show(); });
     input.addEventListener('focus', show);
@@ -1535,7 +1565,7 @@
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-        box.querySelectorAll('li').forEach((li, i) => li.classList.toggle('on', i === active));
+        mark();
       } else if ((e.key === 'Enter' || e.key === 'Tab') && active >= 0) { e.preventDefault(); choose(active); }
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hide(); }
     });
@@ -1585,6 +1615,7 @@
       const name = val('l-name'); if (!name) return fail('Give it a name.');
       const pay = num(val('l-pay')); if (!(pay > 0)) return fail('Enter the monthly amount.');
       const due = Math.min(31, Math.max(1, parseInt(val('l-due'), 10) || 1));
+      if (!isNew) l = fresh(state.liabilities, l);
       const rec = isNew ? { id: uid(), type: l.type } : l;
       Object.assign(rec, { name, payment: round2(pay), dueDay: due, categoryId: val('l-cat') });
       if (debt) {
@@ -1611,6 +1642,7 @@
       const target = num(val('g-target')); if (!(target > 0)) return fail('Enter a target amount.');
       const saved = num(val('g-saved')); const monthly = num(val('g-monthly'));
       const d = val('g-date');
+      if (!isNew) g = fresh(state.goals, g);
       const rec = isNew ? { id: uid() } : g;
       Object.assign(rec, { name, target: round2(target), saved: isFinite(saved) && saved > 0 ? round2(saved) : 0, date: d ? d + '-01' : '', monthly: isFinite(monthly) && monthly > 0 ? round2(monthly) : 0 });
       if (isNew) state.goals.push(rec);
@@ -1620,6 +1652,7 @@
   function contributeForm(g) {
     openModal('Add money to ' + g.name, field('Amount', '<input id="c-amt" inputmode="decimal" placeholder="0.00">'), () => {
       const a = num(val('c-amt')); if (!isFinite(a) || a === 0) return fail('Enter an amount.');
+      g = fresh(state.goals, g);
       g.saved = round2(Math.max(0, g.saved + a));
     }, null, 'Add', { kind: 'contribute', id: g.id });
   }
@@ -1666,8 +1699,14 @@
         const days = daysInMonth(viewMonth);
         const isCurrent = viewMonth === monthKey(new Date());
         const d = isCurrent ? todayISO() : viewMonth + '-' + pad(Math.min(l.dueDay || 1, days));
-        state.transactions.push({ id: uid(), created: Date.now(), type: 'expense', amount: l.payment, date: d, merchant: l.name, categoryId: l.categoryId, note: l.type === 'debt' ? 'Debt payment' : 'Bill', items: [], liabilityId: l.id });
-        if (l.type === 'debt') { const interest = (l.balance || 0) * ((l.apr || 0) / 100 / 12); l.balance = round2(Math.max(0, l.balance - Math.max(0, l.payment - interest))); }
+        const txn = { id: uid(), created: Date.now(), type: 'expense', amount: l.payment, date: d, merchant: l.name, categoryId: l.categoryId, note: l.type === 'debt' ? 'Debt payment' : 'Bill', items: [], liabilityId: l.id };
+        if (l.type === 'debt') {
+          // The balance is today's balance, so only this month's payment lowers it. Catching up an old month just logs the payment.
+          const before = l.balance || 0;
+          if (isCurrent) { const interest = before * ((l.apr || 0) / 100 / 12); l.balance = round2(Math.max(0, before - Math.max(0, l.payment - interest))); }
+          txn.balanceDelta = round2(before - l.balance);
+        }
+        state.transactions.push(txn);
         save(); break;
       }
       case 'unpay': {

@@ -96,6 +96,8 @@ svg { display: block; }
 .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .chip:hover { border-color: var(--brand); color: var(--brand); }
 .chip-done { background: var(--brand-soft); border-color: transparent; color: var(--brand); }
+.chip-later { cursor: default; color: var(--muted); }
+.chip-later:hover { border-color: var(--border); color: var(--muted); }
 
 /* Cards */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); min-width: 0; }
