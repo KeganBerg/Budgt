@@ -177,7 +177,7 @@
     const days = cur.length;
     const budget = totalBudget();
     const spentNow = cur[upTo - 1] || 0;
-    const projected = isCurrent && upTo < days ? spentNow / upTo * days : 0;
+    const projected = isCurrent && upTo < days ? monthPace(k, upTo, spentNow).projected : 0;
     const inc = cumulativeSeries(k, 'income');
     const hasInc = inc[upTo - 1] > 0;
     const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected, hasInc ? inc[upTo - 1] : 0);
@@ -242,6 +242,22 @@
   }
   function compact(v) { return v >= 1000 ? '$' + (v / 1000).toFixed(v % 1000 ? 1 : 0).replace(/\.0$/, '') + 'k' : '$' + Math.round(v); }
 
+  // Bills and debt payments land on fixed days (rent on the 1st), so they can't be averaged across the month.
+  // Pace = this month's bills in full + everyday spending extrapolated from its own daily average.
+  function billPayment(l, k) {
+    const name = (l.name || '').trim().toLowerCase();
+    return txnsIn(k).find(t => t.type === 'expense' && (t.liabilityId === l.id || (!t.liabilityId && name && (t.merchant || '').trim().toLowerCase() === name)));
+  }
+  function monthPace(k, upTo, spent) {
+    const days = daysInMonth(k);
+    const bills = state.liabilities.filter(l => l.payment > 0 && !(l.type === 'debt' && !(l.balance > 0) && !billPayment(l, k)));
+    let paid = 0, left = 0;
+    bills.forEach(l => { const t = billPayment(l, k); if (t) paid += t.amount; else left += l.payment; });
+    const everyday = Math.max(0, spent - paid);
+    const daily = everyday / Math.max(1, upTo);
+    return { daily, billsLeft: round2(left), projected: round2(spent + left + daily * (days - upTo)) };
+  }
+
   function spendingSummary(k) {
     const cur = cumulativeSeries(k);
     const isCurrent = k === monthKey(new Date());
@@ -251,12 +267,14 @@
     const prevSame = prev[Math.min(upTo, prev.length) - 1] || 0;
     const budget = totalBudget();
     const daysLeft = cur.length - upTo;
+    const pace = monthPace(k, upTo, spent);
+    const room = budget - spent - pace.billsLeft;   // bills still due this month are already spoken for
     const items = [
       ['Spent so far', money0(spent), ''],
       ['Last month', money0(prevSame), spent > prevSame ? 'neg' : 'pos', 'What you had spent by day ' + upTo + ' last month'],
-      ['Daily average', money0(spent / Math.max(1, upTo)), ''],
+      ['Daily average', money0(pace.daily), '', 'Everyday spending per day, not counting bills and debt payments'],
       isCurrent && daysLeft > 0
-        ? (budget ? ['Safe per day', money0(Math.max(0, (budget - spent) / daysLeft)), budget - spent < 0 ? 'neg' : 'pos'] : ['Projected month-end', money0(spent / upTo * cur.length), ''])
+        ? (budget ? ['Safe per day', money0(Math.max(0, room / daysLeft)), room < 0 ? 'neg' : 'pos', pace.billsLeft ? money0(pace.billsLeft) + ' of bills still due this month is set aside first' : ''] : ['Projected month-end', money0(pace.projected), ''])
         : ['vs budget', budget ? (spent > budget ? money0(spent - budget) + ' over' : money0(budget - spent) + ' under') : '—', budget && spent > budget ? 'neg' : 'pos'],
     ];
     return '<div class="chart-stats">' + items.map(([l, v, t, tip]) => '<div' + (tip ? ' title="' + esc(tip) + '"' : '') + '><span>' + esc(l) + '</span><b class="' + t + '">' + esc(v) + '</b></div>').join('') + '</div>';

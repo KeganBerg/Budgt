@@ -565,8 +565,8 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 .line-spend-dot { stroke: var(--text); }
 .line-income { fill: none; stroke: var(--pos); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .gap-neg { fill: var(--neg); opacity: 0.32; }
-.gap-pos { fill: #000; opacity: 0.08; }
-@media (prefers-color-scheme: dark) { .gap-pos { opacity: 0.45; } }
+.gap-pos { fill: var(--text); opacity: 0.08; }   /* a light grey on light and dark themes alike */
+@media (prefers-color-scheme: dark) { .gap-pos { opacity: 0.1; } }
 .net-label { font-weight: 700; fill: var(--text); }
 .net-label.neg { fill: var(--neg); }
 .lg-spend::before { background: var(--text); }
