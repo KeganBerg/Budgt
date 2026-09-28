@@ -684,3 +684,10 @@ dialog.guide { width: min(560px, calc(100% - 32px)); }
   dialog.guide { width: 100%; top: auto; } /* long sheet: pin to the bottom edge */
   .guide dl > div { grid-template-columns: 1fr; gap: 2px; }
 }
+/* Small phones (320–360px): keep the page title whole next to the month picker. */
+@media (max-width: 360px) {
+  .topbar { gap: 6px; }
+  .topbar h1 { font-size: 1rem; }
+  .month-picker span { min-width: 60px; }
+  .month-picker .icon-btn { width: 30px; }
+}
