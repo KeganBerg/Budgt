@@ -193,7 +193,8 @@
     svg += '<circle class="line-dot line-spend-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
     if (hasInc) {
       const net = inc[upTo - 1] - spentNow;
-      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';      // Hover or tap a day to see the gap between income and spending (wired up in initChartHover).
+      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
+      // Hover or tap a day to see the gap between income and spending (wired up in initChartHover).
       svg += '<g class="hover-mark" visibility="hidden"><line class="hover-line" y1="' + P.t + '" y2="' + (H - P.b) + '"/><circle class="hover-dot hd-inc" r="4"/><circle class="hover-dot hd-spend" r="4"/></g>';
       svg = svg.replace('<svg class="chart"', '<svg class="chart has-hover" data-hover="' + esc(JSON.stringify({ k: k, cur: curPts.map(round2), inc: inc.slice(0, upTo).map(round2), days: days, l: P.l, r: W - P.r, max: max, top: P.t, bottom: H - P.b })) + '"');
     }
@@ -259,9 +260,28 @@
   // Flyout over the spending chart: which day you're on, both totals and the gap between them.
   function initChartHover() {
     let tip;
+    // While hovering, "Spent so far" and "Net so far" follow the day under the cursor; leaving puts back today's values.
+    const live = svg => {
+      const card = svg.closest('.card'), tile = card && card.querySelector('.chart-stats > div:first-child'), net = svg.querySelector('.net-label');
+      return tile ? { label: tile.querySelector('span'), value: tile.querySelector('b'), net: net } : null;
+    };
+    const setLive = (svg, d, i) => {
+      const el = live(svg); if (!el) return;
+      if (!el.label.dataset.orig) { el.label.dataset.orig = el.label.textContent; el.value.dataset.orig = el.value.textContent; if (el.net) { el.net.dataset.orig = el.net.textContent; el.net.dataset.origNeg = el.net.classList.contains('neg') ? '1' : ''; } }
+      const today = i === d.cur.length - 1, day = monthName(d.k, { month: 'short' }) + ' ' + (i + 1);
+      el.label.textContent = today ? el.label.dataset.orig : 'Spent by ' + day;
+      el.value.textContent = money0(d.cur[i]);
+      if (el.net) { const n = d.inc[i] - d.cur[i]; el.net.textContent = (today ? 'Net so far ' : 'Net by ' + day + ' ') + (n < 0 ? '−' : '+') + money0(Math.abs(n)); el.net.classList.toggle('neg', n < 0); }
+    };
+    const resetLive = () => document.querySelectorAll('.chart.has-hover').forEach(svg => {
+      const el = live(svg); if (!el || !el.label.dataset.orig) return;
+      el.label.textContent = el.label.dataset.orig; el.value.textContent = el.value.dataset.orig;
+      if (el.net) { el.net.textContent = el.net.dataset.orig; el.net.classList.toggle('neg', !!el.net.dataset.origNeg); }
+    });
     const hide = () => {
       if (tip) tip.hidden = true;
       document.querySelectorAll('.chart.has-hover .hover-mark').forEach(g => g.setAttribute('visibility', 'hidden'));
+      resetLive();
     };
     const show = (svg, clientX) => {
       const d = JSON.parse(svg.dataset.hover);
@@ -277,6 +297,7 @@
       g.querySelector('.hd-spend').setAttribute('cx', x); g.querySelector('.hd-spend').setAttribute('cy', y(d.cur[i]));
       g.querySelector('.hd-inc').setAttribute('cx', x); g.querySelector('.hd-inc').setAttribute('cy', y(d.inc[i]));
       g.setAttribute('visibility', 'visible');
+      setLive(svg, d, i);
       const wrap = svg.parentElement;
       if (!tip || !wrap.contains(tip)) { tip = document.createElement('div'); tip.className = 'chart-tip'; tip.setAttribute('role', 'status'); wrap.appendChild(tip); }
       const net = d.inc[i] - d.cur[i];
