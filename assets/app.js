@@ -213,10 +213,11 @@
     svg += '<circle class="line-dot line-spend-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
     if (hasInc) {
       const net = inc[upTo - 1] - spentNow;
-      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';      // Hover or tap a day to see the gap between income and spending (wired up in initChartHover).
-      svg += '<g class="hover-mark" visibility="hidden"><line class="hover-line" y1="' + P.t + '" y2="' + (H - P.b) + '"/><circle class="hover-dot hd-inc" r="4"/><circle class="hover-dot hd-spend" r="4"/></g>';
-      svg = svg.replace('<svg class="chart"', '<svg class="chart has-hover" data-hover="' + esc(JSON.stringify({ k: k, cur: curPts.map(round2), inc: inc.slice(0, upTo).map(round2), days: days, l: P.l, r: W - P.r, max: max, top: P.t, bottom: H - P.b })) + '"');
+      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
     }
+    // Hover, tap or arrow-key through the days to see the totals for each one (wired up in initChartHover).
+    svg += '<g class="hover-mark" visibility="hidden"><line class="hover-line" y1="' + P.t + '" y2="' + (H - P.b) + '"/>' + (hasInc ? '<circle class="hover-dot hd-inc" r="4"/>' : '') + '<circle class="hover-dot hd-spend" r="4"/></g>';
+    svg = svg.replace('<svg class="chart"', '<svg class="chart has-hover" tabindex="0" data-hover="' + esc(JSON.stringify({ k: k, cur: curPts.map(round2), inc: hasInc ? inc.slice(0, upTo).map(round2) : null, days: days, l: P.l, r: W - P.r, max: max, top: P.t, bottom: H - P.b })) + '"').replace('this month, compared with last month">', 'this month, compared with last month. Use the left and right arrow keys to step through the days.">');
     (fs > 16 ? [1, 15, days] : (() => { const every = screenW > 1000 ? 3 : screenW > 700 ? 5 : 7, out = []; for (let d = 1; d <= days - Math.ceil(every * 0.8); d += every) out.push(d); return out.concat(days); })()).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
     return svg + '</svg>';
   }
@@ -304,9 +305,59 @@
   // Flyout over the spending chart: which day you're on, both totals and the gap between them.
   function initChartHover() {
     let tip;
+    // While hovering, "Spent so far" and "Net so far" follow the day under the cursor; leaving puts back today's values.
+    const live = svg => {
+      const card = svg.closest('.card'), tile = card && card.querySelector('.chart-stats > div:first-child'), net = svg.querySelector('.net-label');
+      return tile ? { label: tile.querySelector('span'), value: tile.querySelector('b'), net: net } : null;
+    };
+    const setLive = (svg, d, i) => {
+      const el = live(svg); if (!el) return;
+      if (!el.label.dataset.orig) { el.label.dataset.orig = el.label.textContent; el.value.dataset.orig = el.value.textContent; if (el.net) { el.net.dataset.orig = el.net.textContent; el.net.dataset.origNeg = el.net.classList.contains('neg') ? '1' : ''; } }
+      const today = i === d.cur.length - 1, day = monthName(d.k, { month: 'short' }) + ' ' + (i + 1);
+      el.label.textContent = today ? el.label.dataset.orig : 'Spent by ' + day;
+      el.value.textContent = money0(d.cur[i]);
+      if (el.net) { const n = d.inc[i] - d.cur[i]; el.net.textContent = (today ? 'Net so far ' : 'Net by ' + day + ' ') + (n < 0 ? '−' : '+') + money0(Math.abs(n)); el.net.classList.toggle('neg', n < 0); }
+    };
+    const resetLive = () => document.querySelectorAll('.chart.has-hover').forEach(svg => {
+      const el = live(svg); if (!el || !el.label.dataset.orig) return;
+      el.label.textContent = el.label.dataset.orig; el.value.textContent = el.value.dataset.orig;
+      if (el.net) { el.net.textContent = el.net.dataset.orig; el.net.classList.toggle('neg', !!el.net.dataset.origNeg); }
+    });
     const hide = () => {
       if (tip) tip.hidden = true;
-      document.querySelectorAll('.chart.has-hover .hover-mark').forEach(g => g.setAttribute('visibility', 'hidden'));
+      document.querySelectorAll('.chart.has-hover').forEach(svg => { delete svg.dataset.i; svg.querySelector('.hover-mark').setAttribute('visibility', 'hidden'); });
+      resetLive();
+    };
+    const showDay = (svg, d, i, viaKeys) => {
+      const step = (d.r - d.l) / Math.max(1, d.days - 1);
+      const x = d.l + i * step, y = v => d.bottom - (v / d.max) * (d.bottom - d.top);
+      svg.dataset.i = i;
+      const g = svg.querySelector('.hover-mark'), dot = (sel, v) => { const c = g.querySelector(sel); if (c) { c.setAttribute('cx', x); c.setAttribute('cy', y(v)); } };
+      g.querySelector('line').setAttribute('x1', x); g.querySelector('line').setAttribute('x2', x);
+      dot('.hd-spend', d.cur[i]);
+      if (d.inc) dot('.hd-inc', d.inc[i]);
+      g.setAttribute('visibility', 'visible');
+      setLive(svg, d, i);
+      const wrap = svg.parentElement;
+      if (!tip || !wrap.contains(tip)) { tip = document.createElement('div'); tip.className = 'chart-tip'; wrap.appendChild(tip); }
+      // Only announce to screen readers when stepping with the keyboard, not on every mouse move.
+      tip.setAttribute('aria-live', viaKeys ? 'polite' : 'off');
+      let html = '<b>' + esc(monthName(d.k, { month: 'short' })) + ' ' + (i + 1) + '</b>';
+      if (d.inc) {
+        const net = d.inc[i] - d.cur[i];
+        html += '<span><i class="tip-key tip-inc"></i>Income<em>' + esc(money0(d.inc[i])) + '</em></span>' +
+          '<span><i class="tip-key tip-spend"></i>Spent<em>' + esc(money0(d.cur[i])) + '</em></span>' +
+          '<span class="tip-net ' + (net < 0 ? 'neg' : '') + '">' + (net < 0 ? 'Spent more by' : net > 0 ? 'Ahead by' : 'Even') + '<em>' + (net ? esc(money0(Math.abs(net))) : '') + '</em></span>';
+      } else {
+        html += '<span><i class="tip-key tip-spend"></i>Spent<em>' + esc(money0(d.cur[i])) + '</em></span>';
+      }
+      tip.innerHTML = html;
+      tip.hidden = false;
+      const wr = wrap.getBoundingClientRect(), sr = svg.getBoundingClientRect(), scale = sr.width / svg.viewBox.baseVal.width;
+      const px = sr.left - wr.left + x * scale, tw = tip.offsetWidth;
+      const left = px + 12 + tw > wr.width ? px - 12 - tw : px + 12;
+      tip.style.left = Math.max(0, left) + 'px';
+      tip.style.top = (sr.top - wr.top + y(Math.max(d.cur[i], d.inc ? d.inc[i] : 0)) * scale) + 'px';
     };
     const show = (svg, clientX) => {
       const d = JSON.parse(svg.dataset.hover);
@@ -315,31 +366,25 @@
       const n = d.cur.length;
       if (!n || sx < d.l - 10 || sx > d.r + 10) return hide();
       const step = (d.r - d.l) / Math.max(1, d.days - 1);
-      const i = Math.max(0, Math.min(n - 1, Math.round((sx - d.l) / step)));
-      const x = d.l + i * step, y = v => d.bottom - (v / d.max) * (d.bottom - d.top);
-      const g = svg.querySelector('.hover-mark');
-      g.querySelector('line').setAttribute('x1', x); g.querySelector('line').setAttribute('x2', x);
-      g.querySelector('.hd-spend').setAttribute('cx', x); g.querySelector('.hd-spend').setAttribute('cy', y(d.cur[i]));
-      g.querySelector('.hd-inc').setAttribute('cx', x); g.querySelector('.hd-inc').setAttribute('cy', y(d.inc[i]));
-      g.setAttribute('visibility', 'visible');
-      const wrap = svg.parentElement;
-      if (!tip || !wrap.contains(tip)) { tip = document.createElement('div'); tip.className = 'chart-tip'; tip.setAttribute('role', 'status'); wrap.appendChild(tip); }
-      const net = d.inc[i] - d.cur[i];
-      tip.innerHTML = '<b>' + esc(monthName(d.k, { month: 'short' })) + ' ' + (i + 1) + '</b>' +
-        '<span><i class="tip-key tip-inc"></i>Income<em>' + esc(money0(d.inc[i])) + '</em></span>' +
-        '<span><i class="tip-key tip-spend"></i>Spent<em>' + esc(money0(d.cur[i])) + '</em></span>' +
-        '<span class="tip-net ' + (net < 0 ? 'neg' : '') + '">' + (net < 0 ? 'Spent more by' : net > 0 ? 'Ahead by' : 'Even') + '<em>' + (net ? esc(money0(Math.abs(net))) : '') + '</em></span>';
-      tip.hidden = false;
-      const wr = wrap.getBoundingClientRect(), sr = svg.getBoundingClientRect(), scale = sr.width / svg.viewBox.baseVal.width;
-      const px = sr.left - wr.left + x * scale, tw = tip.offsetWidth;
-      const left = px + 12 + tw > wr.width ? px - 12 - tw : px + 12;
-      tip.style.left = Math.max(0, left) + 'px';
-      tip.style.top = (sr.top - wr.top + y(Math.max(d.cur[i], d.inc[i])) * scale) + 'px';
+      showDay(svg, d, Math.max(0, Math.min(n - 1, Math.round((sx - d.l) / step))), false);
     };
-    document.addEventListener('pointermove', e => { const svg = e.target.closest && e.target.closest('.chart.has-hover'); if (svg) show(svg, e.clientX); else if (e.pointerType === 'mouse') hide(); });
-    document.addEventListener('pointerdown', e => { const svg = e.target.closest && e.target.closest('.chart.has-hover'); if (svg) show(svg, e.clientX); else hide(); });
+    const chartOf = e => e.target.closest && e.target.closest('.chart.has-hover');
+    document.addEventListener('pointermove', e => { const svg = chartOf(e); if (svg) show(svg, e.clientX); else if (e.pointerType === 'mouse') hide(); });
+    document.addEventListener('pointerdown', e => { const svg = chartOf(e); if (svg) show(svg, e.clientX); else hide(); });
     document.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hide(); });
     window.addEventListener('scroll', () => { if (tip && !tip.hidden && matchMedia('(hover: none)').matches) hide(); }, { passive: true });
+    // Keyboard: focus the chart, then Left/Right (Home/End) step through the days; Escape or leaving the chart closes it.
+    document.addEventListener('keydown', e => {
+      const svg = chartOf(e); if (!svg) return;
+      const d = JSON.parse(svg.dataset.hover), n = d.cur.length; if (!n) return;
+      const cur = svg.dataset.i === undefined ? n : +svg.dataset.i;
+      const next = { ArrowLeft: cur - 1, ArrowRight: cur + 1, Home: 0, End: n - 1 }[e.key];
+      if (e.key === 'Escape') return hide();
+      if (next === undefined) return;
+      e.preventDefault();
+      showDay(svg, d, Math.max(0, Math.min(n - 1, next)), true);
+    });
+    document.addEventListener('focusout', e => { if (chartOf(e)) hide(); });
   }
   initChartHover();
   let fitTimer;
