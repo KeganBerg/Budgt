@@ -221,11 +221,14 @@ input.inline:hover { border-color: var(--border); }
 .liab-right small.neg { color: var(--neg); }
 .liab b { font-variant-numeric: tabular-nums; }
 
-.goal-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-.goal-card { border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.gc-top { display: flex; gap: 12px; align-items: center; }
-.gc-top div { display: flex; flex-direction: column; min-width: 0; }
-.gc-top small { font-size: 0.78rem; }
+.goal-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.goal-card { border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.gc-top { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.gc-top b { font-size: 1rem; }
+.gc-amt { color: var(--muted); font-size: 0.9rem; }
+.gc-amt b { font-size: 1.6rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.goal-card small { font-size: 0.78rem; }
+.goal-card .row-actions { margin-top: 6px; }
 .goal-card p { margin: 0; }
 
 /* Modal */
@@ -354,15 +357,62 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 .tag-flex { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); border-color: transparent; }
 .tag-btn { cursor: pointer; font-family: inherit; }
 .tag-btn:hover { border-color: var(--brand); }
-.tip-lead { margin: 0 0 12px; font-size: 0.9rem; }
-.tips { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.tip { border: 1px solid var(--border); border-radius: 12px; padding: 14px; background: var(--surface-2); }
-.tip-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.tip-save { margin-left: auto; font-size: 0.75rem; font-weight: 700; color: var(--pos); white-space: nowrap; }
-.tip p { margin: 0 0 8px; font-size: 0.84rem; }
-.tip-ideas { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.head-stat { margin-left: auto; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+.head-stat b { font-variant-numeric: tabular-nums; }
+.tips { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.tip { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tip-head { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; margin-bottom: 6px; }
+.tip-name { background: none; border: 0; padding: 0; font-weight: 600; cursor: pointer; }
+.tip-name.spent-link { text-decoration: none; }
+.tip-name.spent-link:hover { text-decoration: underline; }
+.card-fill > .tips { flex: 1; }
+.tip-head .tag { margin-left: auto; }
+.tip-save { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.tip-save b { font-size: 1.6rem; font-weight: 700; color: var(--pos); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.tip-move { margin: 0 0 10px; font-size: 0.85rem; }
+.tip-bar { margin-top: auto; display: flex; height: 6px; border-radius: 99px; overflow: hidden; background: var(--surface-2); gap: 2px; }
+.tip-bar i { display: block; height: 100%; background: var(--line-prev); }
+.tip-bar i.cut { background: var(--pos); }
+.tip-foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 0.78rem; color: var(--muted); }
+.tip-foot > span { font-variant-numeric: tabular-nums; }
+.tip-more { text-align: right; }
+.tip-more summary { cursor: pointer; color: var(--brand); font-weight: 600; list-style: none; }
+.tip-more summary::-webkit-details-marker { display: none; }
+.tip-more summary::after { content: " ›"; }
+.tip-more[open] summary::after { content: " ‹"; }
+.tip-more[open] { flex-basis: 100%; text-align: left; }
+.tip-foot:has(.tip-more[open]) { flex-wrap: wrap; }
+.tip-ideas { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 4px; }
 .tip-ideas li { font-size: 0.8rem; color: var(--muted); padding-left: 14px; position: relative; }
 .tip-ideas li::before { content: "•"; position: absolute; left: 2px; color: var(--brand); }
+/* Phones: swipe through tips side by side instead of stacking three tall cards. */
+@media (max-width: 760px) {
+  .tips { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -16px; padding: 0 16px 4px; scroll-padding: 0 16px; scrollbar-width: none; }
+  .tips::-webkit-scrollbar { display: none; }
+  .tip { flex: 0 0 78%; scroll-snap-align: start; }
+}
+.tc-meta { display: flex; gap: 10px; font-variant-numeric: tabular-nums; }
+/* A labelled progress bar: label and value on top, thin track below. */
+.meter { margin-bottom: 6px; }
+.meter-top { display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
+.meter-top b { color: var(--text); font-variant-numeric: tabular-nums; }
+.meter-top small { color: var(--muted); font-weight: 400; font-size: inherit; }
+.meter-track { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.meter-track i { display: block; height: 100%; background: var(--brand); border-radius: 99px; }
+/* Short status label; the full sentence is in its title. Color only when it means something. */
+.status { font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; flex: none; background: var(--surface-2); color: var(--muted); }
+.status-pos { background: color-mix(in srgb, var(--pos) 12%, transparent); color: var(--pos); }
+.status-warn { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
+.status-neg { background: color-mix(in srgb, var(--neg) 12%, transparent); color: var(--neg); }
+.goals .goal-text { flex: 1; }
+.goals .status { margin-left: auto; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 10px 0 6px; }
+.facts div { display: flex; flex-direction: column-reverse; }
+.facts dt { font-size: 0.75rem; color: var(--muted); }
+.facts dd { margin: 0; font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pt-amt small { font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+.sb-facts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.sb-facts b { color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* Spending chart: fills its card */
 .card-fill { align-self: stretch; display: flex; flex-direction: column; }
@@ -545,7 +595,7 @@ input.calc-target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--bran
 .ss-col span { font-size: 0.7rem; color: var(--muted); text-align: center; margin-top: 4px; }
 .ss-mile { display: grid; gap: 6px; }
 .ss-mile-top { display: flex; justify-content: space-between; gap: 8px; font-size: 0.82rem; }
-.ss-mile-top b { font-variant-numeric: tabular-nums; }
+.ss-mile-top b { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ss-track { height: 6px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
 .ss-track i { display: block; height: 100%; background: var(--brand); }
 
