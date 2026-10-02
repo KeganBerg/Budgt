@@ -2117,19 +2117,29 @@
       desc = best;
     }
     const cat = h >= 0 ? find(/categor|kategorie|cat[ée]gorie/i) : -1;
+    const bal = h >= 0 ? find(/balance|saldo|solde|kontostand/i) : -1;
     const dates = sample.map(r => String(r[date] || '').match(/^(\d{1,2})[-/.](\d{1,2})[-/.]\d{2,4}/)).filter(Boolean);
     const order = dates.some(x => +x[1] > 12) ? 'dmy' : 'mdy';
     let sign = 'neg';
     if (amount >= 0) { const v = data.map(r => parseAmount(r[amount])).filter(isFinite); sign = v.filter(x => x < 0).length >= v.filter(x => x > 0).length ? 'neg' : 'pos'; }
-    return { names, data, map: { date, desc, amount, credit: amount >= 0 ? -1 : credit, debit, order, sign, cat } };
+    return { names, data, map: { date, desc, amount, credit: amount >= 0 ? -1 : credit, debit, order, sign, cat, bal } };
   }
 
   function csvRows(data, map) {
     const learned = {};
     state.transactions.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(t => { learned[merchantKey(t.merchant)] = t.categoryId; });
-    // Count what's already logged per date+amount+type, so re-importing the same file adds nothing twice.
-    const have = {};
-    state.transactions.forEach(t => { const k = t.date + '|' + t.type + '|' + round2(t.amount); have[k] = (have[k] || 0) + 1; });
+    // Rows you already entered: same amount and direction within 3 days (banks post a day or two late), each entry matched once.
+    const used = new Set();
+    const matchOf = (type, amount, date) => {
+      let best = null, gap = 4;
+      state.transactions.forEach(t => {
+        if (used.has(t.id) || t.type !== type || Math.abs(t.amount - amount) >= 0.01) return;
+        const d = Math.abs(daysApart(t.date, date));
+        if (d < gap) { gap = d; best = t; }
+      });
+      if (best) used.add(best.id);
+      return best;
+    };
     const billsUsed = new Set();
     const out = [];
     data.forEach(r => {
@@ -2148,9 +2158,9 @@
       amount = round2(amount);
       const raw = r[map.desc] || '';
       const merchant = cleanMerchant(raw) || (type === 'income' ? 'Income' : 'Purchase');
-      const key = date + '|' + type + '|' + amount;
-      const dup = have[key] > 0;
-      if (dup) have[key]--;
+      const match = matchOf(type, amount, date);
+      const dup = !!match;
+      const bal = map.bal >= 0 ? parseAmount(r[map.bal]) : NaN;
       const transfer = TRANSFER_RE.test(raw);
       let categoryId = type === 'income' ? 'income' : guessCategory(merchant, learned, raw, map.cat >= 0 ? r[map.cat] : '');
       let liabilityId = '';
@@ -2160,7 +2170,7 @@
         const bill = state.liabilities.find(l => l.type !== 'debt' && !billsUsed.has(l.id + date.slice(0, 7)) && merchantKey(l.name).length > 2 && mk.includes(merchantKey(l.name)) && !paymentFor(l.id, date.slice(0, 7)));
         if (bill) { billsUsed.add(bill.id + date.slice(0, 7)); liabilityId = bill.id; if (bill.categoryId) categoryId = bill.categoryId; }
       }
-      out.push({ date, type, amount, merchant, categoryId, liabilityId, dup, transfer, on: !dup && !transfer });
+      out.push({ date, type, amount, merchant, categoryId, liabilityId, dup, transfer, bal: isFinite(bal) ? round2(bal) : null, on: !dup && !transfer });
     });
     return out.sort((a, b) => b.date.localeCompare(a.date));
   }
@@ -2180,16 +2190,43 @@
       field('Dates are', '<select id="cm-order"><option value="mdy"' + (map.order === 'mdy' ? ' selected' : '') + '>Month first</option><option value="dmy"' + (map.order === 'dmy' ? ' selected' : '') + '>Day first</option></select>') +
       '</div></details>';
     const rowHtml = (t, i) => '<li class="csv-row' + (t.on ? '' : ' off') + '"><input type="checkbox" data-csv-on="' + i + '"' + (t.on ? ' checked' : '') + ' aria-label="Import ' + esc(t.merchant) + '">' +
-      '<span class="csv-main"><b>' + esc(t.merchant) + '</b><small>' + esc(shortDate(t.date)) + (t.dup ? ' · <span class="warn">Already added</span>' : t.transfer ? ' · <span class="warn">Transfer?</span>' : '') + '</small></span>' +
+      '<span class="csv-main"><b>' + esc(t.merchant) + '</b><small>' + esc(shortDate(t.date)) + (t.dup ? ' · <span class="warn">Already in Budgt</span>' : t.transfer ? ' · <span class="warn">Transfer?</span>' : '') + '</small></span>' +
       '<span class="csv-amt' + (t.type === 'income' ? ' pos' : '') + '">' + (t.type === 'income' ? '+' : '−') + money(t.amount) + '</span>' +
       (t.type === 'income' ? '<span class="csv-cat muted small">Income</span>' : '<select class="csv-cat" data-csv-cat="' + i + '" aria-label="Category for ' + esc(t.merchant) + '">' + catOptions(t.categoryId) + '</select>') + '</li>';
     const count = () => list.filter(t => t.on).length;
+    // When some rows are already in Budgt, offer to add only the rest, counted from the last balance the user set.
+    const today = todayISO();
+    const anchorM = Object.keys(state.openings || {}).filter(k => k <= today.slice(0, 7)).sort().pop();
+    const anchor = anchorM ? { date: anchorM + '-01', bal: state.openings[anchorM] } : null;
+    let asked = false;
+    const fillRows = () => list.filter(t => !t.dup && !t.transfer && (!anchor || t.date >= anchor.date));
+    const bankBal = () => {
+      // The bank's running balance on the newest day in the file, compared with what Budgt would show after the import.
+      const last = list.find(t => t.bal !== null);
+      if (!last) return null;
+      const extra = fillRows();
+      const ours = balanceOn(last.date, extra);
+      const day = list.filter(t => t.date === last.date && t.bal !== null).map(t => t.bal);
+      const bank = ours !== null && day.some(b => Math.abs(b - ours) < 0.01) ? ours : last.bal;
+      return { date: last.date, bank, ours, off: ours === null || Math.abs(bank - ours) >= 0.01 };
+    };
+    const prompt = () => {
+      const matched = list.filter(t => t.dup).length, rest = fillRows();
+      if (asked || !matched || !rest.length) return '';
+      const b = bankBal();
+      const after = balanceOn(rest.reduce((a, t) => (t.date > a ? t.date : a), ''), rest);
+      return '<div class="csv-fill" role="region" aria-label="Fill in from this file">' +
+        '<p><b>' + matched + ' of ' + list.length + '</b> are already in Budgt.' + (anchor ? ' Add the other <b>' + rest.length + '</b> since your balance of <b>' + money0(anchor.bal) + '</b> on ' + esc(shortDate(anchor.date)) + '?' : ' Add the other <b>' + rest.length + '</b>?') + '</p>' +
+        (after !== null && !(b && b.off) ? '<p class="csv-fill-bal"><span>Balance after</span><b>' + money(after) + '</b></p>' : '') +
+        (b && b.off ? '<label class="csv-fill-bank"><input type="checkbox" id="csvBank" checked><span>Use the bank\'s balance, <b>' + money(b.bank) + '</b> on ' + esc(shortDate(b.date)) + (b.ours !== null ? ' <small class="muted">(Budgt: ' + money(b.ours) + ')</small>' : '') + '</span></label>' : '') +
+        '<div class="row-actions"><button type="button" class="btn btn-sm" data-csv-fill>Fill in ' + rest.length + '</button><button type="button" class="btn btn-ghost btn-sm" data-csv-pick>Pick rows</button></div></div>';
+    };
     const summary = () => {
       const on = list.filter(t => t.on), skipped = list.length - on.length;
       return '<p class="csv-sum"><b>' + on.length + '</b> to import' + (skipped ? ' · ' + skipped + ' skipped' : '') + (on.length ? ' · <span class="neg">−' + money0(sumBy(on, 'expense')) + '</span> <span class="pos">+' + money0(sumBy(on, 'income')) + '</span>' : '') + '</p>';
     };
     const paint = () => {
-      $('#csvBody').innerHTML = summary() + mapping() + (list.length ? '<ul class="csv-rows">' + list.map(rowHtml).join('') + '</ul>' : '<p class="muted">No rows match these columns. Pick the right ones above.</p>');
+      $('#csvBody').innerHTML = prompt() + summary() + mapping() + (list.length ? '<ul class="csv-rows">' + list.map(rowHtml).join('') + '</ul>' : '<p class="muted">No rows match these columns. Pick the right ones above.</p>');
       $('#modalSave').textContent = 'Import ' + count();
     };
     openModal('Import ' + (file.name.length > 28 ? 'bank CSV' : file.name), '<p class="muted small csv-hint">Categories are filled in for you. Change one and the rest from that store follow. Untick transfers between your own accounts.</p><div id="csvBody"></div>', () => {
@@ -2201,12 +2238,28 @@
         if (t.liabilityId && !paymentFor(t.liabilityId, t.date.slice(0, 7))) txn.liabilityId = t.liabilityId;
         state.transactions.push(txn);
       });
-      viewMonth = on.reduce((a, t) => (t.date > a ? t.date : a), '').slice(0, 7);
+      const bank = $('#csvBank') && $('#csvBank').checked ? bankBal() : null;
+      const lastDay = on.reduce((a, t) => (t.date > a ? t.date : a), '');
+      if (bank) {
+        // Set that month's starting balance so the bank's balance on its newest day comes out exactly.
+        const m = bank.date.slice(0, 7), now2 = balanceOn(bank.date);
+        state.openings = state.openings || {};
+        state.openings[m] = round2(now2 === null ? bank.bank - netOf(state.transactions.filter(t => t.date.slice(0, 7) === m && t.date <= bank.date)) : openingFor(m) + bank.bank - now2);
+      }
+      if (state.catchUpFrom && daysApart(lastDay, today) <= 3) delete state.catchUpFrom;
+      viewMonth = lastDay.slice(0, 7);
       txnFilter = { q: '', cat: '' };
       if (location.hash !== '#transactions') location.hash = '#transactions';
     }, null, 'Import');
     paint();
     const body = $('#csvBody');
+    body.addEventListener('click', e => {
+      if (e.target.closest('[data-csv-pick]')) { asked = true; paint(); return; }
+      if (!e.target.closest('[data-csv-fill]')) return;
+      const rest = new Set(fillRows());
+      list.forEach(t => { t.on = rest.has(t); });
+      $('#modalSave').click();
+    });
     body.addEventListener('change', e => {
       const t = e.target;
       if (t.dataset.csvOn) { list[+t.dataset.csvOn].on = t.checked; t.closest('li').classList.toggle('off', !t.checked); body.querySelector('.csv-sum').outerHTML = summary(); $('#modalSave').textContent = 'Import ' + count(); return; }
