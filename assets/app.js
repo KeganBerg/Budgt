@@ -458,10 +458,10 @@
     const left = budget - spent;
 
     let html = '<div class="stats">';
-    html += statCard('Left to spend', budget ? money(left) : '—', budget ? (left >= 0 ? 'of ' + money0(budget) + ' budget' : money0(-left) + ' over budget') : '<a href="#budget">Set a budget</a>', left < 0 ? 'neg' : '');
-    html += statCard('Spent', money(spent), (diff <= 0 ? money0(-diff) + ' less' : money0(diff) + ' more') + ' than last month', diff > 0 ? 'neg' : 'pos');
-    html += statCard('Income', money(income), (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' net', income - spent >= 0 ? 'pos' : 'neg');
-    html += statCard('Total debt', money(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
+    html += statCard('Left to spend', budget ? money0(left) : '—', budget ? (left >= 0 ? 'of ' + money0(budget) + ' budget' : money0(-left) + ' over budget') : '<a href="#budget">Set a budget</a>', left < 0 ? 'neg' : '');
+    html += statCard('Spent', money0(spent), (diff <= 0 ? money0(-diff) + ' less' : money0(diff) + ' more') + ' than last month', diff > 0 ? 'neg' : 'pos');
+    html += statCard('Income', money0(income), (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' net', income - spent >= 0 ? 'pos' : 'neg');
+    html += statCard('Total debt', money0(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
     html += '</div>';
     html += strainBanner();
 
@@ -775,27 +775,20 @@
     for (let i = 5; i >= 0; i--) { const m = shiftMonth(k, -i), l = txnsIn(m); months.push({ m, has: l.length > 0, inc: sumBy(l, 'income'), net: sumBy(l, 'income') - sumBy(l, 'expense') }); }
     const used = months.filter(x => x.has);
     if (!used.length) return '';
-    const max = Math.max(1, ...used.map(x => Math.abs(x.net)));
     const incSum = used.reduce((a, x) => a + x.inc, 0), netSum = used.reduce((a, x) => a + x.net, 0);
     const rate = incSum > 0 ? netSum / incSum : 0;
     const cur = months[5];
-    const bars = months.map(x => {
-      const h = x.has ? Math.max(3, Math.abs(x.net) / max * 100) : 0;
-      return '<div class="ss-col" title="' + esc(monthName(x.m, { month: 'long' })) + ': ' + (x.has ? (x.net >= 0 ? 'saved ' : 'overspent ') + money0(Math.abs(x.net)) : 'no data') + '"><div class="ss-half up">' + (x.has && x.net >= 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><div class="ss-half down">' + (x.has && x.net < 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><span>' + esc(monthName(x.m, { month: 'short' })) + '</span></div>';
-    }).join('');
     // Safety-net milestones (Vanguard): a $2,000 starter cushion, then 3 months of essential costs.
     const saved = state.goals.reduce((a, g) => a + g.saved, 0);
     const { avg } = catAverages();
     const needs = state.categories.filter(isEssential).reduce((a, c) => a + (avg[c.id] || c.budget || 0), 0);
     const cushion = Math.max(2000, Math.round(needs * 3 / 50) * 50);
     const target = saved < 2000 ? 2000 : cushion;
-    const label = saved < 2000 ? '$2,000 starter cushion' : '3 months of essentials';
+    const label = saved < 2000 ? '$2,000 starter cushion' : '3-month cushion';
     const done = saved >= cushion;
-    const anyNeg = used.some(x => x.net < 0);
-    return '<div class="savings-snap' + (anyNeg ? '' : ' no-neg') + '"><div class="ss-stats"><div><span>' + (cur.has ? 'Net this month' : 'Avg net per month') + '</span><b class="' + ((cur.has ? cur.net : netSum / used.length) >= 0 ? 'pos' : 'neg') + '">' + ((cur.has ? cur.net : netSum / used.length) < 0 ? '−' : '+') + money0(Math.abs(cur.has ? cur.net : netSum / used.length)) + '</b></div>' +
+    return '<div class="savings-snap"><div class="ss-stats"><div><span>' + (cur.has ? 'Net this month' : 'Avg net per month') + '</span><b class="' + ((cur.has ? cur.net : netSum / used.length) >= 0 ? 'pos' : 'neg') + '">' + ((cur.has ? cur.net : netSum / used.length) < 0 ? '−' : '+') + money0(Math.abs(cur.has ? cur.net : netSum / used.length)) + '</b></div>' +
       '<div><span>Savings rate</span><b class="' + (rate >= 0 ? '' : 'neg') + '">' + Math.round(rate * 100) + '%</b><small>of income, last ' + used.length + ' mo</small></div></div>' +
-      '<div class="ss-chart" aria-hidden="true">' + bars + '</div>' +
-      '<div class="ss-mile"><div class="ss-mile-top"><span>' + (done ? '3-month safety net reached' : 'Next: ' + label) + '</span><b>' + money0(Math.min(saved, target)) + ' / ' + money0(target) + '</b></div><div class="ss-track"><i style="width:' + Math.min(100, saved / target * 100).toFixed(1) + '%"></i></div>' +
+      '<div class="ss-mile"><div class="ss-mile-top"><span>' + (done ? '3-month cushion reached' : label) + '</span><b>' + money0(Math.min(saved, target)) + ' / ' + money0(target) + '</b></div><div class="ss-track"><i style="width:' + Math.min(100, saved / target * 100).toFixed(1) + '%"></i></div>' +
       (done ? '' : '<small class="muted">' + money0(target - saved) + ' to go' + (netSum / used.length > 0 ? ' · about ' + Math.max(1, Math.ceil((target - saved) / (netSum / used.length))) + ' mo' : '') + '</small>') + '</div></div>';
   }
 
@@ -891,9 +884,9 @@
     const budget = totalBudget();
     const spentTotal = sumBy(txnsIn(viewMonth), 'expense');
     const income = sumBy(txnsIn(viewMonth), 'income');
-    let html = '<div class="stats three">' + statCard('Monthly budget', money(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
-      statCard('Spent', money(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
-      statCard('Remaining', money(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
+    let html = '<div class="stats three">' + statCard('Monthly budget', money0(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
+      statCard('Spent', money0(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
+      statCard('Remaining', money0(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Categories' + info('Type a monthly limit for each category. Tap Essential or Flexible to choose which ones get cut-back tips.') + '</h3><button class="btn btn-ghost btn-sm" data-act="add-cat">+ Category</button></div><ul class="budget-rows">';
     html += state.categories.map(c => {
       const s = spent[c.id] || 0;
@@ -925,8 +918,8 @@
     const bills = state.liabilities.filter(l => l.type !== 'debt');
     const monthly = dueIn(monthKey(new Date())).reduce((a, l) => a + (l.payment || 0), 0);
     const debtTotal = debts.reduce((a, l) => a + (l.balance || 0), 0);
-    let html = '<div class="stats three">' + statCard('Monthly bills and payments', money(monthly), state.liabilities.length + ' total', '') +
-      statCard('Total debt', money(debtTotal), debts.length + ' accounts', '') +
+    let html = '<div class="stats three">' + statCard('Monthly bills and payments', money0(monthly), state.liabilities.length + ' total', '') +
+      statCard('Total debt', money0(debtTotal), debts.length + ' accounts', '') +
       statCard('Debt-free by', debtFreeDate(debts), '', '', 'If you keep paying just the minimums') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Debts</h3><button class="btn btn-ghost btn-sm" data-act="add-liab" data-type="debt">+ Debt</button></div>';
     html += debts.length ? '<ul class="liabs">' + debts.map(l => {
@@ -950,7 +943,7 @@
   function renderGoals() {
     const el = $('#view-goals');
     const avg = avgMonthlySavings();
-    let html = '<div class="stats three">' + statCard('Saved toward goals', money(state.goals.reduce((a, g) => a + g.saved, 0)), 'of ' + money0(state.goals.reduce((a, g) => a + g.target, 0)) + ' total', '') +
+    let html = '<div class="stats three">' + statCard('Saved toward goals', money0(state.goals.reduce((a, g) => a + g.saved, 0)), 'of ' + money0(state.goals.reduce((a, g) => a + g.target, 0)) + ' total', '') +
       statCard('Your savings rate', (avg < 0 ? '−' : '') + money0(Math.abs(avg)) + '/mo', '', avg >= 0 ? 'pos' : 'neg', 'Average income minus spending over your recent months') +
       statCard('Goals', String(state.goals.length), state.goals.filter(g => g.saved >= g.target).length + ' reached', '') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Your goals</h3><button class="btn btn-ghost btn-sm" data-act="add-goal">+ Goal</button></div>';

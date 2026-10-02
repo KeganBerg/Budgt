@@ -762,3 +762,23 @@ dialog.guide { width: min(560px, calc(100% - 32px)); }
 .tip-key { width: 10px; height: 2px; border-radius: 1px; flex: none; }
 .tip-inc { background: var(--pos); }
 .tip-spend { background: var(--text); }
+
+/* ---------- Cleaner surfaces: one level of boxes. Cards hold content directly; inside a card,
+   groups are separated by thin rules or space, not by more bordered boxes. ---------- */
+.chart-stats { gap: 0; }
+.chart-stats div { background: none; border: 0; border-left: 1px solid var(--border); border-radius: 0; padding: 0 14px; }
+.chart-stats div:first-child { border-left: 0; padding-left: 0; }
+@media (max-width: 760px) {
+  .chart-stats { row-gap: 12px; }
+  .chart-stats div:nth-child(odd) { border-left: 0; padding-left: 0; }
+}
+.tips { gap: 0; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.tip { border: 0; border-left: 1px solid var(--border); border-radius: 0; padding: 0 20px; }
+.tip:first-child { border-left: 0; padding-left: 0; }
+.bill-date { background: none; padding: 0; }
+.tc-rank { display: none; }
+.bubble-stage { background: none; border: 0; }
+.strain-banner { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--neg); }
+.strain-banner .sb-icon { display: none; }
+.calc-toggle { padding: 9px; }
+.calc-toggle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
