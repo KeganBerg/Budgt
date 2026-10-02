@@ -2203,7 +2203,7 @@
     const bankBal = () => {
       // The bank's running balance on the newest day in the file, compared with what Budgt would show after the import.
       const last = list.find(t => t.bal !== null);
-      if (!last) return null;
+      if (!last || (anchor && last.date < anchor.date)) return null;
       const extra = fillRows();
       const ours = balanceOn(last.date, extra);
       const day = list.filter(t => t.date === last.date && t.bal !== null).map(t => t.bal);
@@ -2229,7 +2229,7 @@
       $('#csvBody').innerHTML = prompt() + summary() + mapping() + (list.length ? '<ul class="csv-rows">' + list.map(rowHtml).join('') + '</ul>' : '<p class="muted">No rows match these columns. Pick the right ones above.</p>');
       $('#modalSave').textContent = 'Import ' + count();
     };
-    openModal('Import ' + (file.name.length > 28 ? 'bank CSV' : file.name), '<p class="muted small csv-hint">Categories are filled in for you. Change one and the rest from that store follow. Untick transfers between your own accounts.</p><div id="csvBody"></div>', () => {
+    openModal('Import ' + (file.name.length > 28 ? 'bank CSV' : file.name), '<p class="muted small csv-hint">Categories are filled in. Change one and that store\'s other rows follow.</p><div id="csvBody"></div>', () => {
       const on = list.filter(t => t.on);
       if (!on.length) return fail('Nothing is ticked to import.');
       const now = Date.now();
@@ -2676,7 +2676,9 @@
     if (!ahead.length) return null;
     const start = past.length ? past[past.length - 1].date : today;
     const bal = balanceOn(today);
-    const pending = past.length ? past[past.length - 1].from.filter(s => !paidOn(s, start)).map(s => ({ s, date: start, amount: s.amount })) : [];
+    // A payday before the last balance the user entered is already counted in it.
+    const setOn = (Object.keys(state.openings || {}).filter(k => k <= today.slice(0, 7)).sort().pop() || '') + '-01';
+    const pending = past.length && start >= setOn ? past[past.length - 1].from.filter(s => !paidOn(s, start)).map(s => ({ s, date: start, amount: s.amount })) : [];
     const cur = { start, end: addDays(ahead[0].date, -1), next: ahead[0], current: true, bal, pending,
       pay: round2(pending.reduce((a, p) => a + p.amount, 0)), bills: billsBetween(today.slice(0, 8) + '01' < start ? today.slice(0, 8) + '01' : start, addDays(ahead[0].date, -1)), save: 0 };
     const yearly = payPerYear(), saveYear = goalsMonthlyNeed() * 12;
@@ -2733,9 +2735,9 @@
   function nextMonthCard(n) {
     if (!n) return '';
     const name = monthName(n.month, { month: 'long' });
-    return '<div class="pp-ahead"><div class="pp-ahead-head"><span><b>' + esc(name) + ' before payday</b><small>Due before your ' + esc(shortDate(n.payday)) + ' paycheck. Keep it from ' + esc(monthName(monthKey(new Date()), { month: 'long' })) + '\'s pay.</small></span><b class="pp-ahead-total">' + money0(n.total) + '</b></div>' +
+    return '<details class="pp pp-ahead"><summary class="pp-head"><span class="pp-when"><b>' + esc(name) + ' before payday</b><small>Bills and spending until ' + esc(shortDate(n.payday)) + '</small></span><span class="pp-amt"><b>' + money0(n.total) + '</b><small>keep from ' + esc(monthName(monthKey(new Date()), { month: 'short' })) + '</small></span><svg class="pp-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="pp-body">' +
       '<dl class="pp-math">' + n.bills.map(x => '<div><dt><i class="pp-bills"></i><span>' + esc(x.l.name) + ' <small class="muted">' + esc(shortDate(x.date)) + '</small></span></dt><dd>' + (x.est ? '≈' : '') + money0(x.amount) + '</dd></div>').join('') +
-      (n.spend ? '<div><dt><i class="pp-spend"></i><span>Spending <small class="muted">' + plural(daysApart(n.month + '-01', n.payday), 'day') + '</small></span></dt><dd>≈' + money0(n.spend) + '</dd></div>' : '') + '</dl></div>';
+      (n.spend ? '<div><dt><i class="pp-spend"></i><span>Spending <small class="muted">' + plural(daysApart(n.month + '-01', n.payday), 'day') + '</small></span></dt><dd>≈' + money0(n.spend) + '</dd></div>' : '') + '</dl></div></details>';
   }
 
   function rangeLabel(a, b) { return a === b ? shortDate(a) : shortDate(a) + ' – ' + (a.slice(0, 7) === b.slice(0, 7) ? String(+b.slice(8, 10)) : shortDate(b)); }
@@ -2755,7 +2757,7 @@
     const days = p.current ? plan.cur.days : daysApart(p.start, p.end) + 1;
     const tone = p.free < 0 ? 'neg' : p.usual && p.free < p.usual ? 'warn' : '';
     const noBal = p.current && p.bal === null;
-    const open = periodsTouched ? openPeriods.has(p.start) : i < 2;
+    const open = periodsTouched && openPeriods.has(p.start);
     const when = p.current
       ? '<b>Now</b><small>Until ' + esc(weekday(p.next.date)) + ' ' + esc(shortDate(p.next.date)) + ' · ' + plural(days, 'day') + '</small>'
       : '<b>' + esc(weekday(p.start)) + ' ' + esc(shortDate(p.start)) + '</b><small>Payday · ' + plural(days, 'day') + '</small>';
@@ -2777,9 +2779,9 @@
     if (p.hold) rows.push(['pp-hold', (p.holdSpend >= p.hold ? 'Keep for spending after ' + shortDate(p.holdFor) : 'Keep for ' + shortDate(p.holdFor) + (p.holdSpend ? ' bills and spending' : ' bills')), -p.hold]);
     html += '<dl class="pp-math">' + rows.map(([k, l, v, plain]) => '<div><dt>' + (k ? '<i class="' + k + '"></i>' : '') + esc(l) + '</dt><dd class="' + (v > 0 && !plain ? 'pos' : '') + '">' + (plain ? (v < 0 ? '−' : '') : v > 0 ? '+' : v < 0 ? '−' : '') + money0(Math.abs(v)) + '</dd></div>').join('') +
       '<div class="pp-total"><dt>Left to spend</dt><dd class="' + tone + '">' + (p.free < 0 ? '−' : '') + money0(Math.abs(p.free)) + (p.current && p.free > 0 ? ' <small>' + money0(plan.perDay) + '/day</small>' : '') + '</dd></div></dl>';
-    if (p.usual && p.free >= 0) html += '<p class="pp-note' + (tone ? ' ' + tone : '') + '">You usually spend about ' + money0(p.usual) + ' in ' + plural(days, 'day') + (p.free < p.usual ? ', so this will be tight.' : '.') + '</p>';
+    if (p.usual && p.free >= 0 && p.free < p.usual) html += '<p class="pp-note warn">Tight: you usually spend about ' + money0(p.usual) + ' in ' + plural(days, 'day') + '.</p>';
     if (p.short) html += '<p class="pp-note neg">' + money0(-p.free) + ' short. Pay essentials first, then debt minimums, and ask to move the rest past payday.</p>';
-    if (p.hold) html += '<p class="pp-note">' + (p.holdSpend >= p.hold ? 'The ' + esc(shortDate(p.holdFor)) + ' paycheck leaves less than you usually spend, so some of this one is kept for it.' : 'A later paycheck can\'t cover its bills, so some of this one is kept back. Moving a due date to just after payday frees it up.') + '</p>';
+    if (p.hold && p.holdSpend < p.hold) html += '<p class="pp-note">Move a due date to just after payday to free this up.</p>';
     if (p.bills.length || (p.pending || []).length) {
       const today = todayISO();
       html += '<ul class="pp-bills-list">' + (p.pending || []).map(x => '<li><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.s.name) + '<small class="muted">Payday not logged</small></span><b class="pos">+' + money0(x.amount) + '</b><button type="button" class="chip" data-act="log-pay" data-id="' + x.s.id + '" data-date="' + x.date + '">Log it</button></li>').join('') +
@@ -2816,12 +2818,11 @@
     let html = '';
     if (plan) {
       const c = plan.cur, n = c.next;
-      html += '<div class="stats three">' +
-        statCard('Left until payday', c.bal === null ? '—' : (c.free < 0 ? '−' : '') + money0(Math.abs(c.free)), c.bal === null ? '<button type="button" class="link-btn small-link" data-act="catch-up">Enter balance</button>' : c.free > 0 ? money0(plan.perDay) + ' a day for ' + plural(c.days, 'day') : 'Short before payday', c.free < 0 ? 'neg' : '', 'Your balance, minus bills due before your next payday, minus anything kept back for a later paycheck that can\'t cover its own bills') +
-        statCard('Next payday', esc(weekday(n.date)) + ' ' + esc(shortDate(n.date)), '<span class="pos">+' + money0(n.amount) + '</span> · in ' + plural(daysApart(todayISO(), n.date), 'day'), '') +
+      html += '<div class="stats two">' +
+        statCard('Left until ' + esc(weekday(n.date)) + ' ' + esc(shortDate(n.date)), c.bal === null ? '—' : (c.free < 0 ? '−' : '') + money0(Math.abs(c.free)), c.bal === null ? '<button type="button" class="link-btn small-link" data-act="catch-up">Enter balance</button>' : (c.free > 0 ? money0(plan.perDay) + '/day' : 'Short') + ' · payday <span class="pos">+' + money0(n.amount) + '</span>', c.free < 0 ? 'neg' : '', 'Your balance, minus bills due before your next payday, minus anything kept back for a later paycheck that can\'t cover its own bills') +
         statCard('Balance', c.bal === null ? '—' : money0(c.bal), c.bal === null ? '' : '<button type="button" class="link-btn small-link" data-act="catch-up">Update</button>', c.bal !== null && c.bal < 0 ? 'neg' : '') + '</div>';
       html += '<div class="card"><div class="card-head"><h3>By paycheck' + info('Each bill is paid from the last paycheck before it\'s due. Savings is each paycheck\'s share of your goals and yearly costs. If money runs short, essentials (housing, utilities, getting to work, insurance) come before debt minimums, which come before everything else.') + '</h3></div>' +
-        bufferPrompt() + nextMonthCard(plan.ahead) + '<ol class="pay-periods">' + plan.periods.map((p, i) => periodBlock(p, plan, i)).join('') + '</ol></div>';
+        bufferPrompt() + '<ol class="pay-periods">' + (plan.ahead ? '<li>' + nextMonthCard(plan.ahead) + '</li>' : '') + plan.periods.map((p, i) => periodBlock(p, plan, i)).join('') + '</ol></div>';
     }
     html += payScheduleList();
     if (!plan && (state.paySchedules || []).length) html += '<div class="card"><p class="muted">No paydays in the next few months.</p></div>';
