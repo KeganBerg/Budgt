@@ -2018,32 +2018,64 @@
     t = t.replace(/\s+/g, ' ');
     t = t.replace(/^purchase authorized on \d{1,2}\/\d{1,2}\s*/i, '');
     for (let i = 0; i < 3; i++) t = t.replace(/^(pos|debit card|debit|dbt|checkcard|check card|card|visa|mc|purchase|recurring|preauthorized|pre-authorized|ach|electronic|withdrawal|point of sale|contactless)\b[\s:#*-]*/i, '');
-    t = t.replace(/^(sq|tst|sp|pp|paypal|py|dd|ic|in)\s?\*\s*/i, '');
+    t = t.replace(/^(sq|tst|sp|pp|paypal|py|dd|ic|in)\s?\*\s*/i, '').replace(/^uber\s*\*\s*eats\b/i, 'Uber Eats');
     t = t.replace(/^(.{3,}?)\*.*$/, '$1').replace(/\s+(ppd|web|ccd|ach)\s+id:.*$/i, '').replace(/\s+\d{1,2}\/\d{1,2}(\/\d{2,4})?\b.*$/, '').replace(/\s*#?\s*\d{4,}.*$/, '').replace(/\s+#\d+\b/, '').replace(/\s+(x{2,}|\*{2,})\S*.*$/i, '').replace(/[\s*#-]+$/, '').trim();
     if (t && !/[a-z]/.test(t)) t = t.toLowerCase().replace(/(^|[\s&/-])([a-z])/g, (a, b, c) => b + c.toUpperCase()).replace(/\b(Atm|Usa|Cvs|Bp|Ups|Usps)\b/g, w => w.toUpperCase());
     return (t || String(s || '').trim()).slice(0, 60);
   }
   function merchantKey(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
 
+  // Known merchants and words in a bank description, and the kind of category they belong in (first match wins;
+  // if the user has no category of that kind, the next rule is tried).
   const CAT_HINTS = [
-    [/hous|rent|mortgage/i, /\b(rent|mortgage|landlord|property|hoa)\b/i],
-    [/grocer|food/i, /grocer|market|safeway|kroger|trader joe|aldi|whole foods|costco|publix|wegmans|sprouts|instacart|food lion|heb\b|albertsons|lidl|tesco|sainsbury/i],
-    [/dining|restaurant|eat/i, /restaurant|cafe|coffee|starbucks|dunkin|mcdonald|burger|pizza|taco|sushi|grill|kitchen|bakery|chipotle|subway|doordash|uber ?eats|grubhub|deliveroo|bar\b|pub\b|bistro|diner/i],
-    [/transport|car|auto|gas/i, /\b(shell|chevron|exxon|mobil|bp|texaco|arco|valero|sunoco|gas|fuel|uber|lyft|parking|transit|metro|toll|dmv|jiffy)\b/i],
-    [/util|bill/i, /electric|power|water|energy|comcast|xfinity|verizon|at&t|t-mobile|spectrum|internet|utility|pg&e|con ed/i],
-    [/health|medical/i, /pharmacy|cvs|walgreens|rite aid|doctor|dental|dentist|clinic|hospital|medical|optical|vision/i],
-    [/entertain|fun|leisure/i, /netflix|spotify|hulu|disney|hbo|max\b|youtube|apple\.com|cinema|theat|movie|steam|playstation|xbox|nintendo|ticket/i],
-    [/shop/i, /amazon|amzn|target|walmart|best buy|ikea|etsy|ebay|home depot|lowe|macy|nordstrom|tj ?maxx|old navy/i],
+    [/hous|rent|mortgage/i, /\b(rent|mortgage|landlord|property|hoa|apartments?)\b/i],
+    [/grocer|food/i, /grocer|supermarket|market\b|mkt\b|safeway|kroger|trader joe|aldi|whole ?f(oo)?ds|costco|sam'?s club|publix|wegmans|sprouts|instacart|food lion|heb\b|albertsons|lidl|tesco|sainsbury|meijer|giant eagle|stop & shop|vons|ralphs|winco|hy-?vee|piggly|harris teeter|fred meyer|smith'?s/i],
+    [/dining|restaurant|eat/i, /restaurant|cafe|caf[eé]|coffee|starbucks|dunkin|mcdonald|burger|pizza|taco|sushi|grill|kitchen|bakery|chipotle|subway|doordash|uber ?eats|grubhub|deliveroo|postmates|bar\b|pub\b|bistro|diner|chick-?fil-?a|wendy|panera|kfc|popeyes|domino|papa john|arby|sonic|dairy queen|five guys|shake shack|jimmy john|jersey mike|panda express|olive garden|applebee|ihop|denny|waffle house|culver|in-n-out|whataburger|wingstop|noodles|crumbl|tim hortons|dutch bros|peet/i],
+    [/transport|car|auto|gas/i, /\b(shell|chevron|exxon|mobil|bp|texaco|arco|valero|sunoco|citgo|marathon|speedway|wawa|sheetz|circle k|7-eleven|quiktrip|qt|racetrac|kwik|casey'?s|pilot|loves|76|gas|fuel|uber|lyft|parking|park|transit|metro|toll|ez ?pass|dmv|jiffy|autozone|o'?reilly|advance auto|valvoline|car ?wash)\b/i],
+    [/insur/i, /insurance|geico|progressive|state farm|allstate|liberty mutual|usaa|nationwide|farmers ins/i],
+    [/util|bill/i, /electric|power|water|energy|comcast|xfinity|verizon|at&t|t-mobile|spectrum|internet|utility|pg&e|con ed|duke|dominion|national grid|cox comm|mint mobile|cricket|waste|sewer|gas co|insurance|geico|progressive|state farm|allstate/i],
+    [/health|medical|fitness/i, /pharmacy|cvs|walgreens|rite aid|doctor|dental|dentist|clinic|hospital|medical|optical|vision|urgent care|labcorp|quest diag|gym|fitness|planet fit|ymca|orangetheory|la fitness/i],
+    [/travel|vacation|trip/i, /airline|air ?lines|delta|united|american air|southwest|jetblue|alaska air|spirit|frontier|expedia|airbnb|vrbo|hotel|marriott|hilton|hyatt|booking\.com|amtrak/i],
+    [/entertain|fun|leisure|subscri/i, /netflix|spotify|hulu|disney|hbo|max\b|youtube|apple\.com|prime video|paramount|peacock|audible|cinema|theat|movie|amc\b|regal|steam|playstation|xbox|nintendo|ticket|concert|bowling/i],
+    [/pet/i, /chewy|petco|petsmart|vet\b|veterinar/i],
+    [/shop/i, /amazon|amzn|target|walmart|best buy|ikea|etsy|ebay|home depot|lowe|macy|nordstrom|tj ?maxx|marshalls|ross\b|old navy|gap\b|kohl|dollar tree|dollar general|family dollar|five below|bath & body|ulta|sephora|michaels|hobby lobby|chewy|petco|petsmart|shein|temu/i],
+  ];
+  // Category names banks put in their own exports (Chase, Capital One, Amex), and the kind of category they mean.
+  const BANK_CATS = [
+    [/grocer|supermarket/i, /grocer|food/i],
+    [/food|drink|restaurant|dining/i, /dining|restaurant|eat/i],
+    [/gas|fuel|automotive|transport|parking/i, /transport|car|auto|gas/i],
+    [/bill|utilit|phone|internet|cable/i, /util|bill/i],
+    [/health|medical|pharm|wellness|fitness/i, /health|medical|fitness/i],
+    [/travel|airline|lodging|hotel/i, /travel|vacation|trip/i],
+    [/entertain|recreation/i, /entertain|fun|leisure/i],
+    [/shop|merchandise|retail|clothing/i, /shop/i],
+    [/rent|mortgage|housing/i, /hous|rent|mortgage/i],
   ];
   const TRANSFER_RE = /\b(transfer|xfer|thank you|autopay|auto pay|online pmt|epay|crd pmt|card payment|credit card|cc payment|to savings|from savings|from checking|to checking)\b/i;
 
-  function guessCategory(merchant, learned) {
+  // Guess in order: what you picked for this exact merchant before, known merchant names and words in the
+  // description, what you picked for a similar name, the category your bank put on it, then Other.
+  function guessCategory(merchant, learned, raw, bankCat) {
     const k = merchantKey(merchant);
     if (learned[k]) return learned[k];
+    const text = merchant + ' ' + (raw || '');
     for (const [catRe, re] of CAT_HINTS) {
-      if (!re.test(merchant)) continue;
+      if (!re.test(text)) continue;
       const c = state.categories.find(x => catRe.test(x.name));
       if (c) return c.id;
+    }
+    // "Joe's Garage 123" picks up what you chose for "Joe's Garage", and the other way round.
+    const first = k.split(' ')[0];
+    if (first.length >= 4 && !/^(the|city|store|online|payment|purchase)$/.test(first)) { const near = Object.keys(learned).find(x => x.split(' ')[0] === first); if (near) return learned[near]; }
+    if (bankCat) {
+      const same = state.categories.find(x => x.name.toLowerCase() === bankCat.trim().toLowerCase());
+      if (same) return same.id;
+      for (const [bankRe, catRe] of BANK_CATS) {
+        if (!bankRe.test(bankCat)) continue;
+        const c = state.categories.find(x => catRe.test(x.name));
+        if (c) return c.id;
+      }
     }
     const other = state.categories.find(c => /other|misc/i.test(c.name)) || state.categories[0];
     return other ? other.id : '';
@@ -2084,11 +2116,12 @@
       }
       desc = best;
     }
+    const cat = h >= 0 ? find(/categor|kategorie|cat[ée]gorie/i) : -1;
     const dates = sample.map(r => String(r[date] || '').match(/^(\d{1,2})[-/.](\d{1,2})[-/.]\d{2,4}/)).filter(Boolean);
     const order = dates.some(x => +x[1] > 12) ? 'dmy' : 'mdy';
     let sign = 'neg';
     if (amount >= 0) { const v = data.map(r => parseAmount(r[amount])).filter(isFinite); sign = v.filter(x => x < 0).length >= v.filter(x => x > 0).length ? 'neg' : 'pos'; }
-    return { names, data, map: { date, desc, amount, credit: amount >= 0 ? -1 : credit, debit, order, sign } };
+    return { names, data, map: { date, desc, amount, credit: amount >= 0 ? -1 : credit, debit, order, sign, cat } };
   }
 
   function csvRows(data, map) {
@@ -2119,7 +2152,7 @@
       const dup = have[key] > 0;
       if (dup) have[key]--;
       const transfer = TRANSFER_RE.test(raw);
-      let categoryId = type === 'income' ? 'income' : guessCategory(merchant, learned);
+      let categoryId = type === 'income' ? 'income' : guessCategory(merchant, learned, raw, map.cat >= 0 ? r[map.cat] : '');
       let liabilityId = '';
       if (type === 'expense' && !dup) {
         // A bill paid from the bank shows as paid in Upcoming bills instead of asking to be marked again.
@@ -2159,7 +2192,7 @@
       $('#csvBody').innerHTML = summary() + mapping() + (list.length ? '<ul class="csv-rows">' + list.map(rowHtml).join('') + '</ul>' : '<p class="muted">No rows match these columns. Pick the right ones above.</p>');
       $('#modalSave').textContent = 'Import ' + count();
     };
-    openModal('Import ' + (file.name.length > 28 ? 'bank CSV' : file.name), '<p class="muted small csv-hint">Categories are guessed from your past entries. Untick transfers between your own accounts.</p><div id="csvBody"></div>', () => {
+    openModal('Import ' + (file.name.length > 28 ? 'bank CSV' : file.name), '<p class="muted small csv-hint">Categories are filled in for you. Change one and the rest from that store follow. Untick transfers between your own accounts.</p><div id="csvBody"></div>', () => {
       const on = list.filter(t => t.on);
       if (!on.length) return fail('Nothing is ticked to import.');
       const now = Date.now();
@@ -2177,7 +2210,17 @@
     body.addEventListener('change', e => {
       const t = e.target;
       if (t.dataset.csvOn) { list[+t.dataset.csvOn].on = t.checked; t.closest('li').classList.toggle('off', !t.checked); body.querySelector('.csv-sum').outerHTML = summary(); $('#modalSave').textContent = 'Import ' + count(); return; }
-      if (t.dataset.csvCat) { list[+t.dataset.csvCat].categoryId = t.value; return; }
+      if (t.dataset.csvCat) {
+        // Changing one row changes the other rows from the same merchant that you haven't set yourself.
+        const row = list[+t.dataset.csvCat], k = merchantKey(row.merchant);
+        row.categoryId = t.value; row.picked = true;
+        list.forEach((x, i) => {
+          if (x === row || x.picked || x.type !== 'expense' || merchantKey(x.merchant) !== k) return;
+          x.categoryId = t.value;
+          const sel = body.querySelector('[data-csv-cat="' + i + '"]'); if (sel) sel.value = t.value;
+        });
+        return;
+      }
       if (!/^cm-/.test(t.id)) return;
       const v = +t.value;
       if (t.id === 'cm-date') map.date = v;
