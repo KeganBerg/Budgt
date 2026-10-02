@@ -2550,6 +2550,15 @@
   }
   const TIER_LABEL = { 1: 'Essential', 2: 'Minimum', 3: 'Can wait' };
 
+  // What this user usually spends a day outside bills, debt payments and yearly costs, from their last 90 days.
+  function everydayDaily() {
+    const today = todayISO(), from = addDays(today, -90);
+    const list = state.transactions.filter(t => t.type === 'expense' && t.date > from && t.date <= today && !t.liabilityId && !t.fundId && !t.adjust);
+    if (!list.length) return 0;
+    const first = list.reduce((a, t) => (t.date < a ? t.date : a), today);
+    return list.reduce((a, t) => a + t.amount, 0) / Math.max(14, daysApart(first, today) + 1);
+  }
+
   // The budget, one paycheck at a time. The period you're in starts from today's balance (plus any payday
   // that hasn't been logged yet) and pays the bills due before the next payday. Each later paycheck pays the
   // bills due before the one after it, then puts its share of goals and yearly costs aside. A paycheck that
@@ -2583,6 +2592,9 @@
       p.have = round2(have);
     }
     cur.days = daysApart(today, cur.end) + 1;
+    // Compare each period's Free with what this user usually spends day to day over the same number of days.
+    const daily = everydayDaily();
+    periods.forEach(p => { p.usual = daily ? round2(daily * (p.current ? cur.days : daysApart(p.start, p.end) + 1)) : 0; });
     // Short before payday: cover bills in priority order and flag the ones the money doesn't reach.
     if (bal !== null && cur.free < 0) {
       let left = round2(bal + cur.pay);
@@ -2609,8 +2621,9 @@
     const facts = [['Bills', p.billsTotal, '']];
     if (p.save) facts.push(['Save', p.save, '']);
     if (p.hold) facts.push(['Hold', p.hold, 'For the bills due after ' + shortDate(p.holdFor) + '. Asking those companies to move the due date to just after a payday frees this up.']);
-    facts.push(['Free', p.free, p.free < 0 ? 'neg' : 'pos']);
-    html += '<div class="pp-facts">' + facts.map(([l, v, t]) => '<span' + (l === 'Hold' ? ' title="' + esc(t) + '"' : '') + '>' + l + ' <b class="' + (l === 'Free' ? t : '') + '">' + (v < 0 ? '−' : '') + money0(Math.abs(v)) + '</b></span>').join('') + '</div>';
+    if (p.usual) facts.push(['Usual', p.usual, 'What you usually spend outside bills over these days, from your last 90 days']);
+    facts.push(['Free', p.free, p.free < 0 ? 'neg' : p.free < p.usual ? 'warn' : 'pos']);
+    html += '<div class="pp-facts">' + facts.map(([l, v, t]) => '<span' + (l === 'Hold' || l === 'Usual' ? ' title="' + esc(t) + '"' : '') + '>' + l + ' <b class="' + (l === 'Free' ? t : '') + '">' + (v < 0 ? '−' : '') + money0(Math.abs(v)) + '</b></span>').join('') + '</div>';
     if (full && p.short) html += '<p class="pp-tip neg">' + money0(-p.free) + ' short. Essentials first, then debt minimums. Ask to move the rest past payday.</p>';
     if (full && (p.bills.length || (p.pending || []).length)) {
       const today = todayISO();
