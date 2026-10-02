@@ -978,3 +978,4 @@ select.csv-cat { padding: 6px 8px; font-size: 0.82rem; }
 .pp-buffer span { display: flex; flex-direction: column; }
 .pp-buffer small { font-size: 0.8rem; color: var(--muted); }
 .pp-bills-list .pp-n small { white-space: normal; }
+.pp-facts b.warn { color: var(--warn); }
