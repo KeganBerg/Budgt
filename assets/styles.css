@@ -970,3 +970,11 @@ select.csv-cat { padding: 6px 8px; font-size: 0.82rem; }
 }
 @media (max-width: 440px) { .subtabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 440px) { .pay-sched .head-stat { display: none; } }
+/* Bill priority and the starter buffer on the paycheck plan */
+.pp-bills-list .pp-n { display: flex; flex-direction: column; min-width: 0; }
+.pp-bills-list .pp-n small { font-size: 0.72rem; }
+.pp-tip { margin: 8px 0 0; font-size: 0.82rem; }
+.pp-buffer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 0 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.pp-buffer span { display: flex; flex-direction: column; }
+.pp-buffer small { font-size: 0.8rem; color: var(--muted); }
+.pp-bills-list .pp-n small { white-space: normal; }
