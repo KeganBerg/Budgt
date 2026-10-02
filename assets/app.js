@@ -172,7 +172,8 @@
   function lineChart(k, H, fs) {
     H = Math.max(200, H || 220);
     fs = fs || 11;
-    const W = 600, P = { l: 46, r: 10, t: 14, b: 24 };
+    // Margins grow with the label size, so on a narrow phone (big fs) axis labels never collide or spill out.
+    const W = 600, P = { l: Math.max(46, Math.round(fs * 3.4)), r: 10, t: Math.max(14, Math.round(fs * 0.9)), b: Math.max(24, Math.round(fs * 2.4)) };
     const cur = cumulativeSeries(k);
     const prev = cumulativeSeries(shiftMonth(k, -1));
     const isCurrent = k === monthKey(new Date());
@@ -193,9 +194,9 @@
     const path = (arr, len) => smoothPath(arr.map((v, i) => [x(i, len), y(v)]));
     let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" style="--axis-fs:' + fs.toFixed(1) + 'px" role="img" aria-label="Cumulative spending and income this month, compared with last month">';
     for (let v = 0; v <= max + 0.001; v += step) {
-      svg += '<line class="grid-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (P.l - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + esc(compact(v)) + '</text>';
+      svg += '<line class="grid-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (P.l - Math.max(8, fs * 0.6)) + '" y="' + (y(v) + fs * 0.35) + '" text-anchor="end">' + esc(compact(v)) + '</text>';
     }
-    if (budget > 0) svg += '<line class="budget-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(budget) + '" y2="' + y(budget) + '"/><text class="axis budget-label" x="' + (W - P.r) + '" y="' + (y(budget) - 6) + '" text-anchor="end">Budget ' + esc(money0(budget)) + '</text>';
+    if (budget > 0) svg += '<line class="budget-line" x1="' + P.l + '" x2="' + (W - P.r) + '" y1="' + y(budget) + '" y2="' + y(budget) + '"/><text class="axis budget-label" x="' + (W - P.r) + '" y="' + (y(budget) - fs * 0.55) + '" text-anchor="end">Budget ' + esc(money0(budget)) + '</text>';
     if (prev[prev.length - 1] > 0) svg += '<path class="line-prev" d="' + path(prev, prev.length) + '"/>';
     const curPts = cur.slice(0, upTo);
     if (hasInc) {
@@ -212,16 +213,16 @@
       svg += '<path class="line-income" d="' + path(incPts, days) + '"/>';
     }
     svg += '<path class="line-cur line-spend" d="' + path(curPts, days) + '"/>';
-    if (projected) svg += '<path class="line-proj" d="M' + x(upTo - 1, days) + ' ' + y(spentNow) + ' L' + x(days - 1, days) + ' ' + y(projected) + '"/><text class="axis proj-label" x="' + (W - P.r) + '" y="' + (y(projected) + (y(projected) < P.t + 16 ? 14 : -6)) + '" text-anchor="end">On pace for ' + esc(money0(projected)) + '</text>';
+    if (projected) svg += '<path class="line-proj" d="M' + x(upTo - 1, days) + ' ' + y(spentNow) + ' L' + x(days - 1, days) + ' ' + y(projected) + '"/><text class="axis proj-label" x="' + (W - P.r) + '" y="' + (y(projected) + (y(projected) < P.t + fs * 1.5 ? fs * 1.3 : -fs * 0.55)) + '" text-anchor="end">On pace for ' + esc(money0(projected)) + '</text>';
     svg += '<circle class="line-dot line-spend-dot" cx="' + x(upTo - 1, days) + '" cy="' + y(spentNow) + '" r="4.5"/>';
     if (hasInc) {
       const net = inc[upTo - 1] - spentNow;
-      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + 12) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
+      svg += '<text class="axis net-label ' + (net < 0 ? 'neg' : '') + '" x="' + (P.l + 10) + '" y="' + (P.t + fs * 1.6) + '">Net so far ' + (net < 0 ? '−' : '+') + esc(money0(Math.abs(net))) + '</text>';
     }
     // Hover, tap or arrow-key through the days to see the totals for each one (wired up in initChartHover).
     svg += '<g class="hover-mark" visibility="hidden"><line class="hover-line" y1="' + P.t + '" y2="' + (H - P.b) + '"/>' + (hasInc ? '<circle class="hover-dot hd-inc" r="4"/>' : '') + '<circle class="hover-dot hd-spend" r="4"/></g>';
     svg = svg.replace('<svg class="chart"', '<svg class="chart has-hover" tabindex="0" data-hover="' + esc(JSON.stringify({ k: k, cur: curPts.map(round2), inc: hasInc ? inc.slice(0, upTo).map(round2) : null, days: days, l: P.l, r: W - P.r, max: max, top: P.t, bottom: H - P.b })) + '"').replace('this month, compared with last month">', 'this month, compared with last month. Use the left and right arrow keys to step through the days.">');
-    (fs > 16 ? [1, 15, days] : (() => { const every = screenW > 1000 ? 3 : screenW > 700 ? 5 : 7, out = []; for (let d = 1; d <= days - Math.ceil(every * 0.8); d += every) out.push(d); return out.concat(days); })()).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - 6) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
+    (fs > 16 ? [1, 15, days] : (() => { const every = screenW > 1000 ? 3 : screenW > 700 ? 5 : 7, out = []; for (let d = 1; d <= days - Math.ceil(every * 0.8); d += every) out.push(d); return out.concat(days); })()).forEach(d => { svg += '<text class="axis" x="' + x(d - 1, days) + '" y="' + (H - fs * 0.5) + '" text-anchor="' + (d === 1 ? 'start' : d === days ? 'end' : 'middle') + '">' + esc(monthName(k, { month: 'short' })) + ' ' + d + '</text>'; });
     return svg + '</svg>';
   }
   // Monotone cubic curve through the points (no overshoot, so running totals never dip).
@@ -291,9 +292,10 @@
     const svg = wrap.querySelector('svg');
     const w = wrap.clientWidth, h = wrap.clientHeight;
     if (!w || !svg) return;
-    // Keep the chart at least 340px tall on screen and its labels about 11px, however wide the card is.
+    // Keep the chart at least 340px tall on screen (a little under square on a phone) and its labels about 11px, however wide the card is.
     const scale = 600 / w;
-    const target = Math.min(900, Math.max(Math.round(h * scale), Math.round(340 * scale)));
+    const minH = w < 480 ? Math.max(220, Math.round(w * 0.82)) : 340;
+    const target = Math.min(900, Math.max(Math.round(h * scale), Math.round(minH * scale)));
     const fs = 11 * scale;
     const current = svg.viewBox.baseVal.height;
     if (Math.abs(target - current) > 6 || Math.abs(fs - 11) > 0.5) wrap.innerHTML = lineChart(viewMonth, target, fs);
@@ -985,7 +987,7 @@
     root.innerHTML = '<div class="card income-card"><label class="income-field"><span>Monthly take-home income</span><span class="money-input big"><span>$</span><input inputmode="decimal" id="incomeInput" value="' + (state.income || '') + '" placeholder="' + (det ? det : '0') + '" aria-label="Monthly take-home income"></span></label>' +
       '<label class="income-field"><span>Balance on ' + esc(monthName(viewMonth, { month: 'short' })) + ' 1</span><span class="money-input big"><span>$</span><input inputmode="decimal" id="openingInput" value="' + ((state.openings || {})[viewMonth] ?? '') + '" placeholder="' + (openingFor(viewMonth) ?? '0') + '" aria-label="Starting balance for ' + esc(monthName(viewMonth)) + '"></span></label>' +
       '<p class="muted small">' + (state.income > 0 ? 'Used for budget plans and strain alerts.' + (det && Math.abs(det - state.income) > 1 ? ' Your logged income averages ' + money0(det) + '/mo.' : '') : det ? 'Using your ' + money0(det) + '/mo average. <button type="button" class="link-btn small-link" data-act="use-income">Use ' + money0(det) + '</button>' : 'After tax. Budget plans are built from this.') + '</p></div>' +
-      '<nav class="subtabs" aria-label="Budget sections"><a href="#budget"' + (!sub ? ' class="on"' : '') + '>Categories</a><a href="#budget/plans"' + (sub === 'plans' ? ' class="on"' : '') + '>Budget plans</a><a href="#budget/patterns"' + (sub === 'patterns' ? ' class="on"' : '') + '>Patterns' + (alerts ? ' <span class="count">' + alerts + '</span>' : '') + '</a></nav><div id="budgetSub"></div>';
+      '<nav class="subtabs" aria-label="Budget sections"><a href="#budget"' + (!sub ? ' class="on"' : '') + '>Categories</a><a href="#budget/plans"' + (sub === 'plans' ? ' class="on"' : '') + '><span class="lbl-long">Budget plans</span><span class="lbl-short">Plans</span></a><a href="#budget/patterns"' + (sub === 'patterns' ? ' class="on"' : '') + '>Patterns' + (alerts ? ' <span class="count">' + alerts + '</span>' : '') + '</a></nav><div id="budgetSub"></div>';
     const inc = $('#incomeInput');
     inc.addEventListener('input', () => { const v = num(inc.value); state.income = isFinite(v) && v > 0 ? round2(v) : 0; persist(); });
     inc.addEventListener('change', () => save());
