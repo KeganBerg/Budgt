@@ -34,10 +34,9 @@
       </nav>
       <div class="sidebar-foot">
         <button class="link-btn" id="exportBtn" type="button">Export backup</button>
-        <label class="link-btn" for="importFile">Import backup</label>
+        <button class="link-btn" id="importBtn" type="button">Import backup</button>
         <input type="file" id="importFile" accept="application/json" hidden>
-        <p class="fine save-status" id="saveStatus">Changes save automatically</p>
-        <p class="fine">Your data stays in this browser. Nothing is uploaded.</p>
+        <p class="fine save-status" id="saveStatus" title="Your data stays in this browser. Nothing is uploaded.">Changes save automatically</p>
       </div>
     </aside>
 
@@ -99,7 +98,7 @@
         <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><rect class="gap-pos" x="2" y="1" width="24" height="10" rx="2"/></svg>Grey gap</dt><dd>Income is ahead of spending. This is where you want to be.</dd></div>
         <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="line-prev" d="M2 6h24"/></svg>Last month</dt><dd>Where you were on the same day last month. Staying under it means you're spending less.</dd></div>
         <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="budget-line" d="M2 6h24"/></svg>Budget</dt><dd>Your total monthly budget. The spending line should finish the month below it.</dd></div>
-        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="line-proj" d="M2 10L26 2"/></svg>Pace</dt><dd>Where you'll finish if you keep spending at your daily average. Shown for the current month only.</dd></div>
+        <div><dt><svg viewBox="0 0 28 12" aria-hidden="true"><path class="line-proj" d="M2 10L26 2"/></svg>Pace</dt><dd>Where you'll finish: bills still due this month, plus everyday spending at its daily average. Shown for the current month only.</dd></div>
       </dl>
       <p class="guide-note"><b>Net so far</b>, top left, is income minus spending to date. It turns red when it's negative.</p>
       <p class="guide-note"><b>Hover over the chart</b>, tap it on a phone, or focus it and use the arrow keys to see that day's totals. Spent so far and Net so far follow along.</p>
@@ -108,8 +107,8 @@
       <dl class="guide-terms">
         <div><dt>Spent so far</dt><dd>Total spending this month up to today.</dd></div>
         <div><dt>Last month</dt><dd>What you had spent by this day last month. Red when you're ahead of it.</dd></div>
-        <div><dt>Daily average</dt><dd>Spent so far divided by the days that have passed.</dd></div>
-        <div><dt>Safe per day</dt><dd>Budget left divided by days left. Red $0 means the budget is already used up.</dd></div>
+        <div><dt>Daily average</dt><dd>Everyday spending divided by the days that have passed. Bills and debt payments are left out, so rent on the 1st doesn't skew it.</dd></div>
+        <div><dt>Safe per day</dt><dd>Budget left, minus bills still due this month, divided by days left. Red $0 means the budget is already used up.</dd></div>
       </dl>
 
       <h3>A healthy month looks like</h3>

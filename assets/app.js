@@ -80,13 +80,25 @@
   const fmt0 = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function money(n) { return fmt.format(n || 0); }
   function money0(n) { return fmt0.format(n || 0); }
-  function num(v) { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : NaN; }
+  function num(v) {
+    let t = String(v).trim();
+    if (/^-?\$?\s?\d+,\d{1,2}$/.test(t)) t = t.replace(',', '.');   // decimal comma, e.g. 12,50
+    const n = parseFloat(t.replace(/[^0-9.\-]/g, ''));
+    return isFinite(n) ? n : NaN;
+  }
   function round2(n) { return Math.round(n * 100) / 100; }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // The item as it is in state now (another tab's save replaces state); re-added if that tab deleted it.
+  function fresh(list, obj) {
+    const cur = list.find(x => x.id === obj.id);
+    if (cur) return cur;
+    list.push(obj);
+    return obj;
+  }
   function catById(id) { return id === 'income' ? INCOME_CATEGORY : state.categories.find(c => c.id === id) || { id: '', name: 'Uncategorized' }; }
   function catColor(id) { const i = state.categories.findIndex(c => c.id === id); return i < 0 ? '#94a3b8' : PALETTE[i % PALETTE.length]; }
 
@@ -131,6 +143,14 @@
   }
 
   function paymentFor(liabilityId, k) { return state.transactions.find(t => t.liabilityId === liabilityId && t.date.slice(0, 7) === k); }
+  function debtFor(t) { const l = t && t.liabilityId && state.liabilities.find(x => x.id === t.liabilityId); return l && l.type === 'debt' ? l : null; }
+  // Put back what a logged debt payment took off the balance (the reverse of Mark paid).
+  function refundDebtPayment(t) {
+    const l = debtFor(t);
+    if (!l) return;
+    if (typeof t.balanceDelta === 'number') l.balance = round2(l.balance + t.balanceDelta);
+    else { const r = (l.apr || 0) / 100 / 12; l.balance = round2((l.balance + t.amount) / (1 + r)); }   // payments logged before balanceDelta existed
+  }
 
   // ---------- charts (plain SVG) ----------
   function cumulativeSeries(k, type) {
@@ -157,7 +177,7 @@
     const days = cur.length;
     const budget = totalBudget();
     const spentNow = cur[upTo - 1] || 0;
-    const projected = isCurrent && upTo < days ? spentNow / upTo * days : 0;
+    const projected = isCurrent && upTo < days ? monthPace(k, upTo, spentNow).projected : 0;
     const inc = cumulativeSeries(k, 'income');
     const hasInc = inc[upTo - 1] > 0;
     const top = Math.max(1, spentNow, prev[prev.length - 1] || 0, budget, projected, hasInc ? inc[upTo - 1] : 0);
@@ -223,6 +243,22 @@
   }
   function compact(v) { return v >= 1000 ? '$' + (v / 1000).toFixed(v % 1000 ? 1 : 0).replace(/\.0$/, '') + 'k' : '$' + Math.round(v); }
 
+  // Bills and debt payments land on fixed days (rent on the 1st), so they can't be averaged across the month.
+  // Pace = this month's bills in full + everyday spending extrapolated from its own daily average.
+  function billPayment(l, k) {
+    const name = (l.name || '').trim().toLowerCase();
+    return txnsIn(k).find(t => t.type === 'expense' && (t.liabilityId === l.id || (!t.liabilityId && name && (t.merchant || '').trim().toLowerCase() === name)));
+  }
+  function monthPace(k, upTo, spent) {
+    const days = daysInMonth(k);
+    const bills = state.liabilities.filter(l => l.payment > 0 && !(l.type === 'debt' && !(l.balance > 0) && !billPayment(l, k)));
+    let paid = 0, left = 0;
+    bills.forEach(l => { const t = billPayment(l, k); if (t) paid += t.amount; else left += l.payment; });
+    const everyday = Math.max(0, spent - paid);
+    const daily = everyday / Math.max(1, upTo);
+    return { daily, billsLeft: round2(left), projected: round2(spent + left + daily * (days - upTo)) };
+  }
+
   function spendingSummary(k) {
     const cur = cumulativeSeries(k);
     const isCurrent = k === monthKey(new Date());
@@ -232,12 +268,14 @@
     const prevSame = prev[Math.min(upTo, prev.length) - 1] || 0;
     const budget = totalBudget();
     const daysLeft = cur.length - upTo;
+    const pace = monthPace(k, upTo, spent);
+    const room = budget - spent - pace.billsLeft;   // bills still due this month are already spoken for
     const items = [
       ['Spent so far', money0(spent), ''],
       ['Last month', money0(prevSame), spent > prevSame ? 'neg' : 'pos', 'What you had spent by day ' + upTo + ' last month'],
-      ['Daily average', money0(spent / Math.max(1, upTo)), ''],
+      ['Daily average', money0(pace.daily), '', 'Everyday spending per day, not counting bills and debt payments'],
       isCurrent && daysLeft > 0
-        ? (budget ? ['Safe per day', money0(Math.max(0, (budget - spent) / daysLeft)), budget - spent < 0 ? 'neg' : 'pos'] : ['Projected month-end', money0(spent / upTo * cur.length), ''])
+        ? (budget ? ['Safe per day', money0(Math.max(0, room / daysLeft)), room < 0 ? 'neg' : 'pos', pace.billsLeft ? money0(pace.billsLeft) + ' of bills still due this month is set aside first' : ''] : ['Projected month-end', money0(pace.projected), ''])
         : ['vs budget', budget ? (spent > budget ? money0(spent - budget) + ' over' : money0(budget - spent) + ' under') : '—', budget && spent > budget ? 'neg' : 'pos'],
     ];
     return '<div class="chart-stats">' + items.map(([l, v, t, tip]) => '<div' + (tip ? ' title="' + esc(tip) + '"' : '') + '><span>' + esc(l) + '</span><b class="' + t + '">' + esc(v) + '</b></div>').join('') + '</div>';
@@ -256,6 +294,13 @@
     const fs = 11 * scale;
     const current = svg.viewBox.baseVal.height;
     if (Math.abs(target - current) > 6 || Math.abs(fs - 11) > 0.5) wrap.innerHTML = lineChart(viewMonth, target, fs);
+  }
+  // SVG text scales with the chart's width; counter that so axis labels stay about 11px on screen.
+  function fitAxisText(root) {
+    root.querySelectorAll('svg.chart').forEach(svg => {
+      if (svg.closest('.chart-fill') || !svg.clientWidth) return;
+      svg.style.setProperty('--axis-fs', (11 * svg.viewBox.baseVal.width / svg.clientWidth).toFixed(1) + 'px');
+    });
   }
   // Flyout over the spending chart: which day you're on, both totals and the gap between them.
   function initChartHover() {
@@ -343,7 +388,7 @@
   }
   initChartHover();
   let fitTimer;
-  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { if (currentView() === 'dashboard') renderDashboard(); }, 150); });
+  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { if (currentView() === 'dashboard') renderDashboard(); else fitAxisText(document); }, 150); });
 
   function barChart(endK) {
     const months = [];
@@ -413,10 +458,10 @@
     const left = budget - spent;
 
     let html = '<div class="stats">';
-    html += statCard('Left to spend', budget ? money(left) : '—', budget ? (left >= 0 ? 'of ' + money0(budget) + ' budget' : money0(-left) + ' over budget') : '<a href="#budget">Set a budget</a>', left < 0 ? 'neg' : '');
-    html += statCard('Spent', money(spent), (diff <= 0 ? money0(-diff) + ' less' : money0(diff) + ' more') + ' than last month so far', diff > 0 ? 'neg' : 'pos');
-    html += statCard('Income', money(income), 'Net ' + (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' this month', income - spent >= 0 ? 'pos' : 'neg');
-    html += statCard('Total debt', money(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
+    html += statCard('Left to spend', budget ? money0(left) : '—', budget ? (left >= 0 ? 'of ' + money0(budget) + ' budget' : money0(-left) + ' over budget') : '<a href="#budget">Set a budget</a>', left < 0 ? 'neg' : '');
+    html += statCard('Spent', money0(spent), (diff <= 0 ? money0(-diff) + ' less' : money0(diff) + ' more') + ' than last month', diff > 0 ? 'neg' : 'pos');
+    html += statCard('Income', money0(income), (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' net', income - spent >= 0 ? 'pos' : 'neg');
+    html += statCard('Total debt', money0(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
     html += '</div>';
     html += strainBanner();
 
@@ -425,9 +470,10 @@
 
     html += '<div class="card"><div class="card-head"><h3>Upcoming bills</h3><a href="#liabilities" class="small-link">Manage</a></div>' + upcomingBills() + '</div>';
 
-    html += '<div class="card"><div class="card-head"><h3>Top spending</h3><a href="#transactions" class="small-link">Details</a></div>' + topSpending(viewMonth) + '</div>';
+    html += '<div class="card"><div class="card-head"><h3>Top spending' + info('Each category\'s share of this month\'s spending, and how it compares with the same point last month.') + '</h3><a href="#transactions" class="small-link">Details</a></div>' + topSpending(viewMonth) + '</div>';
 
-    html += '<div class="card span-2"><div class="card-head"><h3>Ways to cut back' + info('Only Flexible categories get tips. Housing, groceries, transport and other essentials are left out. Change which categories are essential on the Budget page.') + '</h3></div>' + cutBackTips(viewMonth) + '</div>';
+    const cut = cutBackTips(viewMonth);
+    html += '<div class="card span-2 card-fill"><div class="card-head"><h3>Ways to cut back' + info('Only Flexible categories get tips. Housing, groceries, transport and other essentials are left out. Change which categories are essential on the Budget page.') + '</h3>' + (cut.total ? '<span class="head-stat" title="' + (cut.goal ? 'Could go toward your ' + esc(cut.goal.name) : '') + '">Up to <b class="pos">' + money0(cut.total) + '/mo</b></span>' : '') + '</div>' + cut.html + '</div>';
 
     html += '<div class="card span-2"><div class="card-head"><h3>Income vs spending</h3><div class="legend"><span class="lg lg-inc">Income</span><span class="lg lg-exp">Spending</span></div></div>' + barChart(viewMonth) + '</div>';
 
@@ -439,6 +485,7 @@
     html += '</div>';
     el.innerHTML = html;
     fitSpendingChart();
+    fitAxisText(el);
     startBubbles();
   }
 
@@ -448,19 +495,23 @@
     return '<div class="card stat"><p class="stat-label">' + label + (note ? info(note) : '') + '</p><p class="stat-value' + (!sub && tone ? ' ' + tone : '') + '">' + value + '</p>' + (sub ? '<p class="stat-sub ' + (tone || '') + '">' + sub + '</p>' : '') + '</div>';
   }
 
+  // Bills and debt payments due in month k: a debt paid down to $0 has nothing due (unless it was paid off that month).
+  function dueIn(k) { return state.liabilities.filter(l => !(l.type === 'debt' && !(l.balance > 0) && !paymentFor(l.id, k))); }
+
   function upcomingBills() {
     if (!state.liabilities.length) return '<p class="muted">No bills yet. <a href="#liabilities">Add your rent, subscriptions or loan payments.</a></p>';
     const k = viewMonth;
     const days = daysInMonth(k);
-    const rows = state.liabilities.slice().sort((a, b) => (a.dueDay || 1) - (b.dueDay || 1)).map(l => {
+    const due = dueIn(k);
+    const rows = due.slice().sort((a, b) => (a.dueDay || 1) - (b.dueDay || 1)).map(l => {
       const paid = paymentFor(l.id, k);
       const d = Math.min(l.dueDay || 1, days);
-      return '<li class="bill' + (paid ? ' paid' : '') + '"><span class="bill-date"><b>' + d + '</b>' + esc(monthName(k, { month: 'short' })) + '</span><span class="bill-name"><b>' + esc(l.name) + '</b><small>' + money(l.payment) + ' · ' + (l.type === 'debt' ? 'Debt payment' : 'Bill') + '</small></span>' +
-        (paid ? '<button class="chip chip-done" data-act="unpay" data-id="' + l.id + '" title="Undo">Paid</button>' : '<button class="chip" data-act="pay" data-id="' + l.id + '">Mark paid</button>') + '</li>';
+      return '<li class="bill' + (paid ? ' paid' : '') + '"><span class="bill-date"><b>' + d + '</b>' + esc(monthName(k, { month: 'short' })) + '</span><span class="bill-name"><b>' + esc(l.name) + '</b><small>' + money0(l.payment) + (l.type === 'debt' ? ' · Debt' : '') + '</small></span>' +
+        (paid ? '<button class="chip chip-done" data-act="unpay" data-id="' + l.id + '" title="Undo">Paid</button>' : k > monthKey(new Date()) ? '<span class="chip chip-later">Upcoming</span>' : '<button class="chip" data-act="pay" data-id="' + l.id + '">Mark paid</button>') + '</li>';
     });
-    const total = state.liabilities.reduce((a, l) => a + (l.payment || 0), 0);
-    const paidTotal = state.liabilities.reduce((a, l) => a + (paymentFor(l.id, k) ? l.payment || 0 : 0), 0);
-    return '<p class="muted small">' + money0(paidTotal) + ' of ' + money0(total) + ' paid this month</p><ul class="bills">' + rows.join('') + '</ul>';
+    const total = due.reduce((a, l) => a + (l.payment || 0), 0);
+    const paidTotal = due.reduce((a, l) => a + (paymentFor(l.id, k) ? l.payment || 0 : 0), 0);
+    return '<div class="meter" title="' + money0(paidTotal) + ' of ' + money0(total) + ' paid this month"><div class="meter-top"><span>Paid</span><b>' + money0(paidTotal) + ' <small>/ ' + money0(total) + '</small></b></div><div class="meter-track"><i style="width:' + (total ? Math.min(100, paidTotal / total * 100) : 0).toFixed(1) + '%"></i></div></div><ul class="bills">' + rows.join('') + '</ul>';
   }
 
   // ---------- top spending and cut-back tips ----------
@@ -487,10 +538,10 @@
       const c = catById(id);
       const st = catStats(k, id);
       const diff = round2(st.total - st.prev);
-      const trend = st.prev ? (diff > 0 ? '<span class="neg">▲ ' + money0(diff) + '</span>' : diff < 0 ? '<span class="pos">▼ ' + money0(-diff) + '</span>' : '<span class="muted">Same</span>') + ' vs last month' : '<span class="muted">New this month</span>';
+      const trend = st.prev ? (diff > 0 ? '<span class="neg">▲ ' + money0(diff) + '</span>' : diff < 0 ? '<span class="pos">▼ ' + money0(-diff) + '</span>' : '<span>Same</span>') : '<span>New</span>';
       return '<li><span class="tc-rank">' + (i + 1) + '</span><div class="tc-body"><div class="tc-line"><button type="button" class="tc-name spent-link" data-act="view-cat" data-id="' + id + '" title="See these transactions">' + esc(c.name) + '</button><b class="tc-amt">' + money0(spent[id]) + '</b></div>' +
         '<span class="tc-bar"><i style="width:' + (spent[id] / max * 100).toFixed(1) + '%;background:' + catColor(id) + '"></i></span>' +
-        '<small class="muted">' + Math.round(spent[id] / total * 100) + '% of spending · ' + trend + '</small></div></li>';
+        '<small class="tc-meta muted"><span>' + Math.round(spent[id] / total * 100) + '%</span>' + trend + '</small></div></li>';
     }).join('') + '</ol>';
   }
 
@@ -499,6 +550,7 @@
     { re: /dining|restaurant|eat|food|takeout|coffee|cafe|bar/i, build: (c, st) => {
       const skip = Math.max(1, Math.ceil(st.count / 3));
       return {
+        move: 'Cook ' + skip + ' of ' + st.count + ' meals out at home',
         headline: 'You ate out ' + st.count + ' time' + (st.count === 1 ? '' : 's') + ' for ' + money0(st.total) + ' (about ' + money0(st.avg) + ' each). Swapping ' + skip + ' of those for a meal at home saves roughly ' + money0(skip * st.avg * 0.7) + '.',
         save: skip * st.avg * 0.7,
         ideas: ['Plan 3 or 4 dinners on the weekend so weeknights are easy', 'Pack lunch on workdays, even just twice a week', 'Make coffee at home and keep café trips as a treat', st.topMerchant ? 'Most went to ' + st.topMerchant + ' (' + money0(st.topMerchantAmt) + '). Set yourself a limit there first.' : 'Pick one "eat out" night a week and stick to it'],
@@ -508,17 +560,20 @@
       const subs = state.liabilities.filter(l => l.type !== 'debt' && l.categoryId === c.id);
       const subTotal = subs.reduce((a, l) => a + l.payment, 0);
       return {
+        move: subs.length ? 'Review ' + subs.length + ' subscription' + (subs.length === 1 ? '' : 's') : 'Trim it by a quarter',
         headline: 'Entertainment cost ' + money0(st.total) + ' this month' + (subs.length ? ', including ' + subs.length + ' subscription' + (subs.length === 1 ? '' : 's') + ' (' + money0(subTotal) + '/mo)' : '') + '. Cutting it by a quarter saves about ' + money0(st.total * 0.25) + '.',
         save: st.total * 0.25,
         ideas: [subs.length ? 'Review ' + subs.map(l => l.name).join(', ') + '. Cancel anything you haven\'t used in a month.' : 'List every subscription you pay for and cancel the ones you forgot about', 'Rotate streaming services: keep one at a time', 'Look for free local events, library passes and park days'],
       };
     } },
     { re: /shop|cloth|amazon|retail|online|gift|beauty/i, build: (c, st) => ({
+      move: 'Wait 48 hours before buying',
       headline: 'Shopping came to ' + money0(st.total) + ' across ' + st.count + ' purchase' + (st.count === 1 ? '' : 's') + '. Waiting before you buy usually trims a fifth of that, about ' + money0(st.total * 0.2) + '.',
       save: st.total * 0.2,
       ideas: ['Use a 48-hour rule: leave it in the cart and decide later', 'Unsubscribe from store emails and turn off sale notifications', 'Make a list before you go and buy only what is on it'],
     }) },
     { re: /travel|vacation|trip/i, build: (c, st) => ({
+      move: 'Book earlier, go off-peak',
       headline: 'Travel cost ' + money0(st.total) + '. Booking earlier and travelling off-peak often cuts 15%, about ' + money0(st.total * 0.15) + '.',
       save: st.total * 0.15,
       ideas: ['Set up fare alerts instead of booking last minute', 'Put trips on a savings goal so they don\'t hit one month'],
@@ -529,26 +584,31 @@
     const spent = spentByCat(k);
     const flex = state.categories.filter(c => !isEssential(c) && (spent[c.id] || 0) > 0).sort((a, b) => spent[b.id] - spent[a.id]).slice(0, 3);
     if (!flex.length) {
-      return state.transactions.length
-        ? '<p class="muted">No flexible spending this month. Nice work. Mark which categories are essentials on the <a href="#budget">Budget</a> page.</p>'
-        : '<p class="muted">Tips show up here once you log some spending.</p>';
+      return { total: 0, html: state.transactions.length
+        ? '<p class="muted">No flexible spending this month. Mark which categories are essentials on the <a href="#budget">Budget</a> page.</p>'
+        : '<p class="muted">Tips show up here once you log some spending.</p>' };
     }
     let totalSave = 0;
     const cards = flex.map(c => {
       const st = catStats(k, c.id);
       const rule = TIP_RULES.find(r => r.re.test(c.name));
       const tip = rule ? rule.build(c, st) : {
+        move: 'Trim it by 15%',
         headline: c.name + ' came to ' + money0(st.total) + '. Trimming it by 15% frees up about ' + money0(st.total * 0.15) + '.',
         save: st.total * 0.15,
         ideas: ['Check the last few ' + c.name + ' purchases and flag the ones you wouldn\'t buy again', 'Give it a monthly limit on the Budget page so you see it filling up'],
       };
-      if (c.budget && st.total > c.budget) tip.ideas.unshift('You\'re ' + money0(st.total - c.budget) + ' over your ' + money0(c.budget) + ' budget here.');
-      totalSave += tip.save;
-      return '<li class="tip"><div class="tip-head"><span class="dot" style="background:' + catColor(c.id) + '"></span><b>' + esc(c.name) + '</b><span class="tip-save">Save ~' + money0(tip.save) + '/mo</span></div><p>' + esc(tip.headline) + '</p><ul class="tip-ideas">' + tip.ideas.slice(0, 2).map(i => '<li>' + esc(i) + '</li>').join('') + '</ul></li>';
+      const over = c.budget && st.total > c.budget ? st.total - c.budget : 0;
+      const save = Math.min(tip.save, st.total);
+      totalSave += save;
+      const keep = st.total ? (st.total - save) / st.total * 100 : 0;
+      return '<li class="tip"><div class="tip-head"><span class="dot" style="background:' + catColor(c.id) + '"></span><button type="button" class="tip-name spent-link" data-act="view-cat" data-id="' + c.id + '" title="See these transactions">' + esc(c.name) + '</button>' + (over ? '<span class="tag tag-high">' + money0(over) + ' over</span>' : '') + '</div>' +
+        '<p class="tip-save" title="' + esc(tip.headline) + '"><b>' + money0(save) + '</b>/mo</p><p class="tip-move">' + esc(tip.move) + '</p>' +
+        '<div class="tip-bar" aria-hidden="true"><i style="width:' + keep.toFixed(1) + '%"></i><i class="cut" style="width:' + (100 - keep).toFixed(1) + '%"></i></div>' +
+        '<div class="tip-foot"><span>' + money0(st.total) + ' spent</span><details class="tip-more"><summary>Ideas</summary><ul class="tip-ideas">' + tip.ideas.slice(0, 2).map(i => '<li>' + esc(i) + '</li>').join('') + '</ul></details></div></li>';
     });
     const goal = state.goals.find(g => g.saved < g.target);
-    const lead = '<p class="tip-lead">Cutting back here could free up about <b>' + money0(totalSave) + ' a month</b>' + (goal ? ' for your ' + esc(goal.name) : '') + '.</p>';
-    return lead + '<ul class="tips">' + cards.join('') + '</ul>';
+    return { total: totalSave, goal, html: '<ul class="tips">' + cards.join('') + '</ul>' };
   }
 
   function categoryBars(k, limit) {
@@ -715,28 +775,21 @@
     for (let i = 5; i >= 0; i--) { const m = shiftMonth(k, -i), l = txnsIn(m); months.push({ m, has: l.length > 0, inc: sumBy(l, 'income'), net: sumBy(l, 'income') - sumBy(l, 'expense') }); }
     const used = months.filter(x => x.has);
     if (!used.length) return '';
-    const max = Math.max(1, ...used.map(x => Math.abs(x.net)));
     const incSum = used.reduce((a, x) => a + x.inc, 0), netSum = used.reduce((a, x) => a + x.net, 0);
     const rate = incSum > 0 ? netSum / incSum : 0;
     const cur = months[5];
-    const bars = months.map(x => {
-      const h = x.has ? Math.max(3, Math.abs(x.net) / max * 100) : 0;
-      return '<div class="ss-col" title="' + esc(monthName(x.m, { month: 'long' })) + ': ' + (x.has ? (x.net >= 0 ? 'saved ' : 'overspent ') + money0(Math.abs(x.net)) : 'no data') + '"><div class="ss-half up">' + (x.has && x.net >= 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><div class="ss-half down">' + (x.has && x.net < 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><span>' + esc(monthName(x.m, { month: 'short' })) + '</span></div>';
-    }).join('');
     // Safety-net milestones (Vanguard): a $2,000 starter cushion, then 3 months of essential costs.
     const saved = state.goals.reduce((a, g) => a + g.saved, 0);
     const { avg } = catAverages();
     const needs = state.categories.filter(isEssential).reduce((a, c) => a + (avg[c.id] || c.budget || 0), 0);
     const cushion = Math.max(2000, Math.round(needs * 3 / 50) * 50);
     const target = saved < 2000 ? 2000 : cushion;
-    const label = saved < 2000 ? '$2,000 starter cushion' : '3 months of essentials';
+    const label = saved < 2000 ? '$2,000 starter cushion' : '3-month cushion';
     const done = saved >= cushion;
-    const anyNeg = used.some(x => x.net < 0);
-    return '<div class="savings-snap' + (anyNeg ? '' : ' no-neg') + '"><div class="ss-stats"><div><span>' + (cur.has ? 'Net this month' : 'Avg net per month') + '</span><b class="' + ((cur.has ? cur.net : netSum / used.length) >= 0 ? 'pos' : 'neg') + '">' + ((cur.has ? cur.net : netSum / used.length) < 0 ? '−' : '+') + money0(Math.abs(cur.has ? cur.net : netSum / used.length)) + '</b></div>' +
+    return '<div class="savings-snap"><div class="ss-stats"><div><span>' + (cur.has ? 'Net this month' : 'Avg net per month') + '</span><b class="' + ((cur.has ? cur.net : netSum / used.length) >= 0 ? 'pos' : 'neg') + '">' + ((cur.has ? cur.net : netSum / used.length) < 0 ? '−' : '+') + money0(Math.abs(cur.has ? cur.net : netSum / used.length)) + '</b></div>' +
       '<div><span>Savings rate</span><b class="' + (rate >= 0 ? '' : 'neg') + '">' + Math.round(rate * 100) + '%</b><small>of income, last ' + used.length + ' mo</small></div></div>' +
-      '<div class="ss-chart" aria-hidden="true">' + bars + '</div>' +
-      '<div class="ss-mile"><div class="ss-mile-top"><span>' + (done ? '3-month safety net reached' : 'Next: ' + label) + '</span><b>' + money0(Math.min(saved, target)) + ' / ' + money0(target) + '</b></div><div class="ss-track"><i style="width:' + Math.min(100, saved / target * 100).toFixed(1) + '%"></i></div>' +
-      (done ? '' : '<small class="muted">' + money0(target - saved) + ' to go' + (netSum / used.length > 0 ? ', about ' + Math.max(1, Math.ceil((target - saved) / (netSum / used.length))) + ' months at your usual pace' : '') + '</small>') + '</div></div>';
+      '<div class="ss-mile"><div class="ss-mile-top"><span>' + (done ? '3-month cushion reached' : label) + '</span><b>' + money0(Math.min(saved, target)) + ' / ' + money0(target) + '</b></div><div class="ss-track"><i style="width:' + Math.min(100, saved / target * 100).toFixed(1) + '%"></i></div>' +
+      (done ? '' : '<small class="muted">' + money0(target - saved) + ' to go' + (netSum / used.length > 0 ? ' · about ' + Math.max(1, Math.ceil((target - saved) / (netSum / used.length))) + ' mo' : '') + '</small>') + '</div></div>';
   }
 
   function goalsOutlook(compact) {
@@ -744,24 +797,31 @@
     const avg = avgMonthlySavings();
     return '<ul class="goals' + (compact ? ' compact' : '') + '">' + state.goals.map(g => {
       const o = goalOutlook(g, avg);
-      return '<li>' + donut(g.saved / g.target, o.color) + '<div class="goal-text"><b>' + esc(g.name) + '</b><span>' + money0(g.saved) + ' of ' + money0(g.target) + '</span><span class="' + o.tone + '">' + o.text + '</span></div></li>';
+      return '<li>' + donut(g.saved / g.target, o.color) + '<div class="goal-text"><b>' + esc(g.name) + '</b><span>' + money0(g.saved) + ' / ' + money0(g.target) + '</span></div>' + goalChip(o) + '</li>';
     }).join('') + '</ul>';
   }
 
+  function goalChip(o) { return o.short ? '<span class="status status-' + o.tone + '" title="' + esc(o.text) + '">' + o.short + '</span>' : ''; }
   function goalOutlook(g, avg) {
+    const o = goalStatus(g, avg);
+    o.short = o.short || o.text;
+    return o;
+  }
+  function goalStatus(g, avg) {
     const remaining = Math.max(0, g.target - g.saved);
-    if (remaining <= 0) return { text: 'Goal reached', tone: 'pos', color: 'var(--pos)' };
+    if (remaining <= 0) return { text: 'Goal reached', short: 'Reached', tone: 'pos', color: 'var(--pos)' };
     const pace = g.monthly > 0 ? g.monthly : avg;
     const paceLabel = g.monthly > 0 ? 'at ' + money0(g.monthly) + '/mo' : 'at your recent savings rate';
-    if (pace <= 0) return { text: g.monthly > 0 ? '' : 'Not saving yet. Set a monthly amount.', tone: 'neg', color: 'var(--neg)' };
+    if (pace <= 0) return { text: g.monthly > 0 ? '' : 'Not saving yet. Set a monthly amount.', short: g.monthly > 0 ? '' : 'Not saving yet', tone: 'neg', color: 'var(--neg)' };
     const months = Math.ceil(remaining / pace);
+    if (g.date && monthsUntil(g.date) < 0) return { text: 'Target date passed. ' + esc(monthsFromNow(months)) + ' ' + paceLabel + ', or set a new date.', short: 'Date passed', tone: 'warn', color: 'var(--warn)' };
     if (g.date) {
       const left = Math.max(1, monthsUntil(g.date));
       const need = remaining / left;
-      if (months <= left) return { text: 'On track for ' + esc(monthsFromNow(months)) + ' ' + paceLabel, tone: 'pos', color: 'var(--pos)' };
-      return { text: 'Behind: need ' + money0(need) + '/mo to hit ' + esc(shortMonth(g.date)), tone: 'warn', color: 'var(--warn)' };
+      if (months <= left) return { text: 'On track for ' + esc(monthsFromNow(months)) + ' ' + paceLabel, short: 'On track', tone: 'pos', color: 'var(--pos)' };
+      return { text: 'Behind: need ' + money0(need) + '/mo to hit ' + esc(shortMonth(g.date)), short: 'Needs ' + money0(need) + '/mo', tone: 'warn', color: 'var(--warn)' };
     }
-    return { text: 'Reach it by ' + esc(monthsFromNow(months)) + ' ' + paceLabel, tone: 'muted', color: 'var(--brand)' };
+    return { text: 'Reach it by ' + esc(monthsFromNow(months)) + ' ' + paceLabel, short: 'By ' + esc(monthsFromNow(months)), tone: 'muted', color: 'var(--brand)' };
   }
   function shortMonth(iso) { const [y, m] = iso.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }); }
 
@@ -785,10 +845,11 @@
     if (txnFilter.cat) list = list.filter(t => t.categoryId === txnFilter.cat);
     const opts = '<option value="">All categories</option><option value="income"' + (txnFilter.cat === 'income' ? ' selected' : '') + '>Income</option>' + state.categories.map(c => '<option value="' + c.id + '"' + (txnFilter.cat === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
     const all = txnsIn(viewMonth);
-    el.innerHTML = '<div class="card"><div class="toolbar"><input type="search" id="txnSearch" placeholder="Search merchants, notes, receipt items" value="' + esc(txnFilter.q) + '"><select id="txnCat">' + opts + '</select></div>' +
+    el.innerHTML = '<div class="card"><div class="toolbar"><input type="search" id="txnSearch" aria-label="Search transactions" placeholder="Search merchants, notes, receipt items" value="' + esc(txnFilter.q) + '"><select id="txnCat" aria-label="Filter by category">' + opts + '</select></div>' +
       viewTotals(list, all.length) + txnList(list, false) + '</div>';
     const s = $('#txnSearch');
-    s.addEventListener('input', () => { txnFilter.q = s.value; const pos = s.selectionStart; renderTransactions(); const n = $('#txnSearch'); n.focus(); n.setSelectionRange(pos, pos); });
+    s.addEventListener('compositionend', () => s.dispatchEvent(new Event('input')));
+    s.addEventListener('input', e => { if (e.isComposing) return; txnFilter.q = s.value; const pos = s.selectionStart; renderTransactions(); const n = $('#txnSearch'); n.focus(); n.setSelectionRange(pos, pos); });
     $('#txnCat').addEventListener('change', e => { txnFilter.cat = e.target.value; renderTransactions(); });
     const clr = $('#clearFilters');
     if (clr) clr.addEventListener('click', () => { txnFilter = { q: '', cat: '' }; renderTransactions(); });
@@ -811,7 +872,7 @@
     const det = detectedIncome();
     const alerts = findPatterns().filter(p => p.level !== 'low').length;
     root.innerHTML = '<div class="card income-card"><label class="income-field"><span>Monthly take-home income</span><span class="money-input big"><span>$</span><input inputmode="decimal" id="incomeInput" value="' + (state.income || '') + '" placeholder="' + (det ? det : '0') + '" aria-label="Monthly take-home income"></span></label>' +
-      '<p class="muted small">' + (state.income > 0 ? 'Used for budget plans and strain alerts.' + (det && Math.abs(det - state.income) > 1 ? ' Your logged income averages ' + money0(det) + '/mo.' : '') : det ? 'Not set, so Budgt is using your logged income average of ' + money0(det) + '/mo. <button type="button" class="link-btn small-link" data-act="use-income">Use ' + money0(det) + '</button>' : 'After tax. Budget plans are built from this.') + '</p></div>' +
+      '<p class="muted small">' + (state.income > 0 ? 'Used for budget plans and strain alerts.' + (det && Math.abs(det - state.income) > 1 ? ' Your logged income averages ' + money0(det) + '/mo.' : '') : det ? 'Using your ' + money0(det) + '/mo average. <button type="button" class="link-btn small-link" data-act="use-income">Use ' + money0(det) + '</button>' : 'After tax. Budget plans are built from this.') + '</p></div>' +
       '<nav class="subtabs" aria-label="Budget sections"><a href="#budget"' + (!sub ? ' class="on"' : '') + '>Categories</a><a href="#budget/plans"' + (sub === 'plans' ? ' class="on"' : '') + '>Budget plans</a><a href="#budget/patterns"' + (sub === 'patterns' ? ' class="on"' : '') + '>Patterns' + (alerts ? ' <span class="count">' + alerts + '</span>' : '') + '</a></nav><div id="budgetSub"></div>';
     const inc = $('#incomeInput');
     inc.addEventListener('input', () => { const v = num(inc.value); state.income = isFinite(v) && v > 0 ? round2(v) : 0; persist(); });
@@ -823,9 +884,9 @@
     const budget = totalBudget();
     const spentTotal = sumBy(txnsIn(viewMonth), 'expense');
     const income = sumBy(txnsIn(viewMonth), 'income');
-    let html = '<div class="stats three">' + statCard('Monthly budget', money(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
-      statCard('Spent', money(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
-      statCard('Remaining', money(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
+    let html = '<div class="stats three">' + statCard('Monthly budget', money0(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
+      statCard('Spent', money0(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
+      statCard('Remaining', money0(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Categories' + info('Type a monthly limit for each category. Tap Essential or Flexible to choose which ones get cut-back tips.') + '</h3><button class="btn btn-ghost btn-sm" data-act="add-cat">+ Category</button></div><ul class="budget-rows">';
     html += state.categories.map(c => {
       const s = spent[c.id] || 0;
@@ -855,10 +916,10 @@
     const el = $('#view-liabilities');
     const debts = state.liabilities.filter(l => l.type === 'debt');
     const bills = state.liabilities.filter(l => l.type !== 'debt');
-    const monthly = state.liabilities.reduce((a, l) => a + (l.payment || 0), 0);
+    const monthly = dueIn(monthKey(new Date())).reduce((a, l) => a + (l.payment || 0), 0);
     const debtTotal = debts.reduce((a, l) => a + (l.balance || 0), 0);
-    let html = '<div class="stats three">' + statCard('Monthly bills and payments', money(monthly), state.liabilities.length + ' total', '') +
-      statCard('Total debt', money(debtTotal), debts.length + ' accounts', '') +
+    let html = '<div class="stats three">' + statCard('Monthly bills and payments', money0(monthly), state.liabilities.length + ' total', '') +
+      statCard('Total debt', money0(debtTotal), debts.length + ' accounts', '') +
       statCard('Debt-free by', debtFreeDate(debts), '', '', 'If you keep paying just the minimums') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Debts</h3><button class="btn btn-ghost btn-sm" data-act="add-liab" data-type="debt">+ Debt</button></div>';
     html += debts.length ? '<ul class="liabs">' + debts.map(l => {
@@ -882,7 +943,7 @@
   function renderGoals() {
     const el = $('#view-goals');
     const avg = avgMonthlySavings();
-    let html = '<div class="stats three">' + statCard('Saved toward goals', money(state.goals.reduce((a, g) => a + g.saved, 0)), 'of ' + money0(state.goals.reduce((a, g) => a + g.target, 0)) + ' total', '') +
+    let html = '<div class="stats three">' + statCard('Saved toward goals', money0(state.goals.reduce((a, g) => a + g.saved, 0)), 'of ' + money0(state.goals.reduce((a, g) => a + g.target, 0)) + ' total', '') +
       statCard('Your savings rate', (avg < 0 ? '−' : '') + money0(Math.abs(avg)) + '/mo', '', avg >= 0 ? 'pos' : 'neg', 'Average income minus spending over your recent months') +
       statCard('Goals', String(state.goals.length), state.goals.filter(g => g.saved >= g.target).length + ' reached', '') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Your goals</h3><button class="btn btn-ghost btn-sm" data-act="add-goal">+ Goal</button></div>';
@@ -890,9 +951,15 @@
     else html += '<ul class="goal-cards">' + state.goals.map(g => {
       const o = goalOutlook(g, avg);
       const pct = Math.min(1, g.saved / g.target);
-      return '<li class="goal-card"><div class="gc-top">' + donut(pct, o.color) + '<div><b>' + esc(g.name) + '</b><small class="muted">' + Math.round(pct * 100) + '% · ' + money0(g.saved) + ' of ' + money0(g.target) + (g.date ? ' · by ' + esc(shortMonth(g.date)) : '') + '</small></div></div><p class="' + o.tone + ' small">' + o.text + '</p><div class="row-actions"><button class="btn btn-sm" data-act="contribute" data-id="' + g.id + '">+ Add money</button><button class="btn btn-ghost btn-sm" data-act="edit-goal" data-id="' + g.id + '">Edit</button></div></li>';
+      return '<li class="goal-card"><div class="gc-top"><b>' + esc(g.name) + '</b>' + goalChip(o) + '</div>' +
+        '<p class="gc-amt"><b>' + money0(g.saved) + '</b> of ' + money0(g.target) + '</p>' +
+        '<div class="meter-track"><i style="width:' + (pct * 100).toFixed(1) + '%;background:' + o.color + '"></i></div>' +
+        '<small class="muted">' + Math.round(pct * 100) + '%' + (g.date ? ' · by ' + esc(shortMonth(g.date)) : '') + '</small>' +
+        '<div class="row-actions"><button class="btn btn-sm" data-act="contribute" data-id="' + g.id + '">+ Add money</button><button class="btn btn-ghost btn-sm" data-act="edit-goal" data-id="' + g.id + '">Edit</button></div></li>';
     }).join('') + '</ul>';
     html += '</div>';
+    // Phones hide the sidebar, so backups live here too.
+    html += '<p class="phone-backup muted small"><button type="button" class="link-btn" data-act="export">Export backup</button> · <button type="button" class="link-btn" data-act="import">Import backup</button><br>Your data stays in this browser. Keep a backup in case it\'s cleared.</p>';
     el.innerHTML = html;
   }
 
@@ -950,7 +1017,7 @@
       const rem = Math.max(0, g.target - g.saved);
       if (!rem) return a;
       if (g.monthly > 0) return a + g.monthly;
-      if (g.date) return a + rem / Math.max(1, monthsUntil(g.date));
+      if (g.date && monthsUntil(g.date) >= 0) return a + rem / Math.max(1, monthsUntil(g.date));
       return a;
     }, 0);
   }
@@ -988,6 +1055,8 @@
       S = I * plan.save;
       const over = N - I * plan.needs;
       if (over > 0) { W -= over; notes.push('Your essentials are ' + Math.round(N / Math.max(1, I) * 100) + '% of income, above this plan\'s ' + Math.round(plan.needs * 100) + '%. The difference comes out of wants first; essentials are not cut.'); }
+      // Needs under the plan's share: the spare money would otherwise go nowhere, so it's saved.
+      else if (over < 0) { S -= over; notes.push('Your needs are ' + Math.round(N / Math.max(1, I) * 100) + '% of income, under this plan\'s ' + Math.round(plan.needs * 100) + '%, so the spare ' + money0(-over) + '/mo goes to savings.'); }
     }
     if (W < 0) { S += W; X = Math.max(0, X + Math.min(0, S)); if (S > 0) notes.push('Your needs are more than this plan\'s share of income, so wants are set to $0 and savings shrink by ' + money0(-W) + ' to cover the rest. Essentials are not cut.'); W = 0; }
     // Keep wants realistic: never more than 10% above what you actually spend; the surplus is saved instead.
@@ -1015,7 +1084,8 @@
 
   // 12-month projection of savings and debt, current habits vs a plan.
   function simulate(monthlySave, extraDebt) {
-    const debts = state.liabilities.filter(l => l.type === 'debt').map(l => ({ bal: l.balance || 0, apr: l.apr || 0, pay: l.payment || 0 }));
+    // Only debts with a balance: paid-off ones are already left out of the monthly savings figure, so their payment isn't "freed" again.
+    const debts = state.liabilities.filter(l => l.type === 'debt' && l.balance > 0).map(l => ({ bal: l.balance, apr: l.apr || 0, pay: l.payment || 0 }));
     let savings = state.goals.reduce((a, g) => a + g.saved, 0);
     const pts = [{ savings, debt: debts.reduce((a, d) => a + d.bal, 0) }];
     for (let m = 1; m <= 12; m++) {
@@ -1118,6 +1188,7 @@
       '<div class="row-actions plan-actions"><button type="button" class="btn" data-act="apply-plan" data-id="' + r.plan.id + '">' + (active === r.plan.id ? 'Re-apply ' : 'Use ') + esc(r.plan.name) + '</button>' + info('Sets your Flexible category budgets. Essentials keep their current amounts.') + '</div></div>' +
       '<div class="card">' + outlookChart(r) + '</div></div></div>' + planGuide();
     el.innerHTML = html;
+    fitAxisText(el);
   }
 
   const SOURCES = {
@@ -1156,10 +1227,18 @@
   const STOP = new Set('the and for with from this that was were got some new day week month bought paid pay buy for, just also then into our your you are not but all one two had has have its his her him she they them per via at on in of to a an'.split(' '));
   function words(s) { return (s || '').toLowerCase().match(/[a-z][a-z'&-]{2,}/g) || []; }
 
+  // Bill and debt payments logged by hand (no link to a bill) are obligations, not habits.
+  const PAYMENT_RE = /\b(debt|loan|credit ?card|card payment|payment|minimum|interest|mortgage|rent|bill|installment|instalment|transfer|repay\w*|payoff|pay ?off)\b/i;
+  function looksLikePayment(t) {
+    const names = state.liabilities.map(l => (l.name || '').trim().toLowerCase()).filter(Boolean);
+    const m = (t.merchant || '').trim().toLowerCase();
+    return (m && names.includes(m)) || PAYMENT_RE.test(t.merchant || '') || PAYMENT_RE.test(t.note || '');
+  }
+
   function findPatterns() {
     const cur = monthKey(new Date());
     const start = shiftMonth(cur, -2) + '-01';
-    const txns = state.transactions.filter(t => t.type === 'expense' && t.date >= start && !t.liabilityId && !isEssential(catById(t.categoryId)));
+    const txns = state.transactions.filter(t => t.type === 'expense' && t.date >= start && !t.liabilityId && !isEssential(catById(t.categoryId)) && !looksLikePayment(t));
     if (!txns.length) return [];
     const monthsSpan = Math.max(1, new Set(state.transactions.filter(t => t.date >= start).map(t => t.date.slice(0, 7))).size);
     const groups = new Map();
@@ -1185,8 +1264,10 @@
       const habitual = perMonth >= 2 || monthly >= 100;
       const level = !habitual ? 'low' : (I > 0 && share >= 0.05) || monthly >= 150 ? 'high' : (I > 0 && share >= 0.02) || monthly >= 60 ? 'medium' : 'low';
       const recent = g.dates.filter(d => d.slice(0, 7) === cur).length;
-      const topMerchant = Object.keys(g.merchants).sort((a, b) => g.merchants[b] - g.merchants[a])[0];
-      return Object.assign(g, { monthly, share, level, perMonth: g.txns.size / monthsSpan, recent, topMerchant, flexShare: flexMonthly ? monthly / flexMonthly : 0 });
+      // Name a store only when every purchase in the group was made there; a note word like "subscription" can span many stores.
+      const stores = Object.keys(g.merchants).sort((a, b) => g.merchants[b] - g.merchants[a]);
+      const topMerchant = stores.length === 1 && g.merchants[stores[0]] === g.txns.size ? stores[0] : '';
+      return Object.assign(g, { monthly, share, level, perMonth: g.txns.size / monthsSpan, recent, topMerchant, stores, flexShare: flexMonthly ? monthly / flexMonthly : 0 });
     }).sort((a, b) => b.monthly - a.monthly);
     // Keep the most expensive grouping of each set of purchases (e.g. a "vape" note over its store name).
     const picked = [], covered = new Set();
@@ -1198,25 +1279,47 @@
     return picked.slice(0, 8);
   }
 
+  // How a pattern is named inside a sentence. Note words are common nouns ("vape"), so they go lowercase
+  // mid-sentence; store names and receipt items keep the case they were typed in.
+  function patternName(g, atStart) {
+    const n = g.kind === 'note' ? g.label.toLowerCase() : g.label;
+    return atStart ? n.charAt(0).toUpperCase() + n.slice(1) : n;
+  }
+  function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
   function patternMessage(g) {
     const I = monthlyIncome();
-    const where = g.kind !== 'merchant' && g.topMerchant ? ' at ' + g.topMerchant : '';
-    const kindText = g.kind === 'note' ? 'from your notes' : g.kind === 'item' ? 'from receipt items' : 'by store';
-    let text = g.label + where + ' costs about ' + money0(g.monthly) + ' a month (' + Math.round(g.perMonth) + ' purchase' + (Math.round(g.perMonth) === 1 ? '' : 's') + ' a month)';
-    if (I > 0) text += ', ' + (g.share * 100).toFixed(g.share < 0.1 ? 1 : 0) + '% of your income';
-    text += '. That\'s ' + money0(g.monthly * 12) + ' a year.';
+    const at = g.kind === 'merchant' ? 'at ' + g.label : 'on ' + patternName(g) + (g.topMerchant ? ' at ' + g.topMerchant : g.stores.length > 1 ? ' at ' + storeList(g.stores) : '');
+    const per = Math.max(1, Math.round(g.perMonth));
+    let text = 'You spend about ' + money0(g.monthly) + ' a month ' + at + ', over ' + plural(per, 'purchase') + ' a month.';
+    text += I > 0 ? ' That\'s ' + (g.share * 100).toFixed(g.share < 0.1 ? 1 : 0) + '% of your income, or ' + money0(g.monthly * 12) + ' a year.' : ' That\'s ' + money0(g.monthly * 12) + ' a year.';
     const goal = state.goals.find(x => x.saved < x.target);
     const rate = avgMonthlySavings();
-    let impact = '';
+    const half = g.monthly / 2;
+    let impact = 'Cutting this in half would free up ' + money0(half) + ' a month.';
     if (goal) {
       const rem = goal.target - goal.saved;
-      const half = g.monthly / 2;
       if (rate > 0) {
         const a = Math.ceil(rem / rate), b = Math.ceil(rem / (rate + half));
-        if (a - b >= 1) impact = 'Cutting it in half would reach your ' + goal.name + ' ' + (a - b) + ' month' + (a - b === 1 ? '' : 's') + ' sooner.';
-      } else impact = 'Cutting it in half would free up ' + money0(half) + ' a month toward your ' + goal.name + '.';
-    } else impact = 'Cutting it in half would free up ' + money0(g.monthly / 2) + ' a month.';
+        impact = a - b >= 1 ? 'Cutting this in half would get you to your ' + goal.name + ' goal ' + plural(a - b, 'month') + ' sooner.' : impact;
+      } else impact = 'Cutting this in half would free up ' + money0(half) + ' a month for your ' + goal.name + ' goal.';
+    }
+    const kindText = g.kind === 'note' ? 'matched by your notes' : g.kind === 'item' ? 'matched by receipt items' : 'at the same store';
     return { text, impact, kindText };
+  }
+
+  // The same numbers as patternMessage, as short label/value pairs.
+  function patternFacts(g) {
+    const I = monthlyIncome();
+    const f = [[money0(g.monthly * 12), 'a year'], [Math.round(g.perMonth) + '×', 'a month']];
+    if (I > 0) f.push([(g.share * 100).toFixed(g.share < 0.1 ? 1 : 0) + '%', 'of income']);
+    return '<dl class="facts">' + f.map(x => '<div><dt>' + x[1] + '</dt><dd>' + x[0] + '</dd></div>').join('') + '</dl>';
+  }
+  function patternWhere(g) { return g.kind === 'merchant' ? '' : g.topMerchant || (g.stores.length ? storeList(g.stores) : ''); }
+
+  function storeList(stores) {
+    if (stores.length > 3) return stores.slice(0, 2).join(', ') + ' and ' + (stores.length - 2) + ' other stores';
+    return stores.length === 3 ? stores[0] + ', ' + stores[1] + ' and ' + stores[2] : stores.join(' and ');
   }
 
   function renderPatterns(el) {
@@ -1226,9 +1329,10 @@
     if (!pats.length) html += '<p class="muted">No repeating non-essential purchases yet. Patterns show up once something repeats 3 or more times.</p>';
     html += alerts.map(g => {
       const m = patternMessage(g);
-      return '<div class="pattern pattern-' + g.level + '"><div class="pt-head"><b>' + esc(g.label) + '</b><span class="tag ' + (g.level === 'high' ? 'tag-high' : 'tag-flex') + '">' + (g.level === 'high' ? 'High strain' : 'Moderate strain') + '</span><span class="pt-amt">' + money0(g.monthly) + '/mo</span></div>' +
-        '<p>' + esc(m.text) + (g.level === 'high' ? ' <b>This habit is putting a lot of strain on your finances.</b>' : ' It\'s adding up.') + '</p>' +
-        '<p class="muted small">' + esc(m.impact) + ' Found ' + esc(m.kindText) + ' in ' + g.txns.size + ' purchases.</p>' +
+      const where = patternWhere(g);
+      return '<div class="pattern pattern-' + g.level + '"><div class="pt-head"><b>' + esc(g.label) + '</b>' + (where ? '<span class="muted small">' + esc(where) + '</span>' : '') + '<span class="tag ' + (g.level === 'high' ? 'tag-high' : 'tag-flex') + '">' + (g.level === 'high' ? 'High strain' : 'Moderate strain') + '</span><span class="pt-amt">' + money0(g.monthly) + '<small>/mo</small></span></div>' +
+        patternFacts(g) +
+        '<p class="muted small" title="' + esc(m.text) + ' Based on ' + g.txns.size + ' purchases ' + esc(m.kindText) + '.">' + esc(m.impact) + '</p>' +
         '<button type="button" class="link-btn small-link" data-act="search-pattern" data-q="' + esc(g.kind === 'merchant' ? g.label : g.label.toLowerCase()) + '">See these purchases</button></div>';
     }).join('');
     const minor = pats.filter(p => p.level === 'low');
@@ -1242,15 +1346,24 @@
   }
 
   // Headline wording varies by habit and month, but stays put between page loads so it doesn't flicker.
+  // {x} is the name mid-sentence, {X} the name starting a sentence. Each line puts the name after a
+  // preposition or verb ("spending on snacks", "you keep going back to Target"), so it reads right for
+  // any noun, singular or plural, and never as a "habit" of a bill or debt.
   const STRAIN_LINES = {
-    medium: ['{x} is a habit that is adding up.', '{x} keeps showing up in your spending.', 'Those {x} runs are starting to add up.', '{x} has become a regular expense.', 'Small {x} purchases are stacking up.', 'Your {x} spending has turned into a pattern.'],
-    high: ['{x} is putting a lot of strain on your budget.', '{x} is one of your biggest money leaks.', '{x} is taking a big bite out of your income.', 'Your {x} habit is costing you a lot.', '{x} is weighing heavily on your budget.'],
+    medium: {
+      thing: ['Spending on {x} is adding up.', 'You keep buying {x}.', 'Spending on {x} has become a regular expense.', 'Small purchases of {x} are stacking up.'],
+      store: ['Your {x} purchases are adding up.', 'Spending at {x} has become a regular expense.', 'You keep going back to {x}.', 'Small purchases at {x} are stacking up.'],
+    },
+    high: {
+      thing: ['Spending on {x} is putting a strain on your budget.', 'Spending on {x} is taking a big bite out of your income.', 'You\'re spending a lot on {x}.', 'Spending on {x} is weighing heavily on your budget.'],
+      store: ['Spending at {x} is putting a strain on your budget.', 'Your {x} purchases are taking a big bite out of your income.', 'Spending at {x} is costing you a lot.', 'Spending at {x} is weighing heavily on your budget.'],
+    },
   };
   function strainHeadline(g) {
-    const lines = STRAIN_LINES[g.level === 'high' ? 'high' : 'medium'];
+    const lines = STRAIN_LINES[g.level === 'high' ? 'high' : 'medium'][g.kind === 'merchant' ? 'store' : 'thing'];
     let h = 0;
     for (const ch of g.key + monthKey(new Date())) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return lines[h % lines.length].replace('{x}', g.label);
+    return lines[h % lines.length].replace('{x}', patternName(g)).replace('{X}', patternName(g, true));
   }
 
   function strainBanner() {
@@ -1260,7 +1373,7 @@
     if (!show.length) return '';
     const g = show[0];
     const m = patternMessage(g);
-    return '<div class="strain-banner" role="status"><span class="sb-icon" aria-hidden="true">!</span><div><b>' + esc(strainHeadline(g)) + '</b><p>' + esc(m.text) + (show.length > 1 ? ' ' + (show.length - 1) + ' more habit' + (show.length > 2 ? 's' : '') + ' flagged.' : '') + '</p></div>' +
+    return '<div class="strain-banner" role="status"><span class="sb-icon" aria-hidden="true">!</span><div><b>' + esc(strainHeadline(g)) + '</b><p class="sb-facts" title="' + esc(m.text) + '"><span><b>' + money0(g.monthly) + '</b>/mo</span><span><b>' + money0(g.monthly * 12) + '</b>/yr</span>' + (patternWhere(g) ? '<span>' + esc(patternWhere(g)) + '</span>' : '') + (show.length > 1 ? '<span>+' + (show.length - 1) + ' more</span>' : '') + '</p></div>' +
       '<div class="row-actions"><a class="btn btn-sm" href="#budget/patterns">See patterns</a><button type="button" class="btn btn-ghost btn-sm" data-act="dismiss-strain" data-id="' + esc(g.key) + '">Dismiss</button></div></div>';
   }
 
@@ -1353,7 +1466,7 @@
     const isNew = !t;
     t = t || { type: 'expense', amount: '', date: viewMonth === monthKey(new Date()) ? todayISO() : viewMonth + '-01', merchant: '', categoryId: lastCategory(), note: '', items: [] };
     const body =
-      '<div class="scan-row"><label class="btn btn-ghost btn-sm scan-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Scan receipt</span><input type="file" id="scanFile" accept="image/*" hidden></label><span class="scan-status" id="scanStatus" role="status"></span></div>' +
+      '<div class="scan-row"><button type="button" class="btn btn-ghost btn-sm scan-btn" id="scanBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Scan receipt</span></button><input type="file" id="scanFile" accept="image/*" hidden><span class="scan-status" id="scanStatus" role="status"></span></div>' +
       '<div class="seg" role="radiogroup"><label><input type="radio" name="ttype" value="expense"' + (t.type === 'expense' ? ' checked' : '') + '><span>Expense</span></label><label><input type="radio" name="ttype" value="income"' + (t.type === 'income' ? ' checked' : '') + '><span>Income</span></label></div>' +
       '<div class="form-grid">' +
       field('Amount', '<input id="f-amount" inputmode="decimal" placeholder="0.00" value="' + (t.amount || '') + '" required>') +
@@ -1374,16 +1487,27 @@
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail('Pick a date.');
       const items = readItems();
       if (items === null) return fail('Each receipt item needs a name and an amount.');
+      if (!isNew) t = fresh(state.transactions, t);
       const rec = isNew ? { id: uid(), created: Date.now() } : t;
+      // A changed debt payment moves the debt balance by the difference.
+      const debt = !isNew && debtFor(t);
+      if (debt && type === 'expense' && t.balanceDelta !== 0) {
+        // Move the balance by the change in amount (only for payments that reduced it in the first place).
+        const before = debt.balance;
+        debt.balance = round2(Math.max(0, debt.balance - (round2(amount) - t.amount)));
+        if (typeof t.balanceDelta === 'number') t.balanceDelta = round2(t.balanceDelta + before - debt.balance);
+      } else if (debt) refundDebtPayment(t);
       Object.assign(rec, { type, amount: round2(amount), date, merchant: val('f-merchant'), categoryId: type === 'income' ? 'income' : val('f-cat'), note: val('f-note'), items });
+      if (debt && type !== 'expense') delete rec.liabilityId;
       if (isNew) state.transactions.push(rec);
       viewMonth = date.slice(0, 7);
-    }, isNew ? null : () => { state.transactions = state.transactions.filter(x => x.id !== t.id); }, null, { kind: 'txn', id: isNew ? null : t.id });
+    }, isNew ? null : () => { refundDebtPayment(t); state.transactions = state.transactions.filter(x => x.id !== t.id); }, null, { kind: 'txn', id: isNew ? null : t.id });
 
     modal.querySelectorAll('input[name=ttype]').forEach(r => r.addEventListener('change', () => {
       const inc = r.value === 'income' && r.checked;
       if (r.checked) $('#f-cat').innerHTML = catOptions(inc ? 'income' : (t.categoryId !== 'income' ? t.categoryId : ''), inc);
     }));
+    $('#scanBtn').addEventListener('click', () => $('#scanFile').click());
     $('#scanFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) scanReceipt(f); });
     $('#addItem').addEventListener('click', () => { $('#itemRows').insertAdjacentHTML('beforeend', itemRow()); $('#itemRows').lastElementChild.querySelector('input').focus(); updateItemsSum(); });
     $('#useItems').addEventListener('click', () => { const s = itemsTotal(); if (s > 0) $('#f-amount').value = s.toFixed(2); updateItemsSum(); });
@@ -1476,7 +1600,7 @@
     lines.forEach((l, i) => {
       if (totalIdx >= 0 && i >= totalIdx) return;
       const p = prices[i]; if (p == null || p === 0 || NOT_ITEM.test(l)) return;
-      let name = l.replace(PRICE_END, '').replace(/^[\d\s#@x*.-]+(?=[A-Za-z])/, '').replace(/\b\d{6,}\b/g, '').replace(/[^A-Za-z0-9&'%/ .-]/g, ' ').replace(/\s+/g, ' ').trim();
+      let name = l.replace(PRICE_END, '').replace(/^(?:[A-Z]\s+)?\d{4,}\s+/, '').replace(/^[\d\s#@x*.-]+(?=[A-Za-z])/, '').replace(/\b\d{6,}\b/g, '').replace(/[^A-Za-z0-9&'%/ .-]/g, ' ').replace(/\s+/g, ' ').trim();
       if ((name.match(/[A-Za-z]/g) || []).length < 2) return;
       name = name.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase()).slice(0, 40);
       items.push({ name, amount: round2(p) });
@@ -1544,6 +1668,7 @@
       $('#receiptBox').open = true;
     }
     updateItemsSum();
+    saveDraft();
     say('');
   }
 
@@ -1565,9 +1690,18 @@
     wrap.classList.add('ac-wrap');
     const box = document.createElement('ul');
     box.className = 'ac-list'; box.hidden = true; box.setAttribute('role', 'listbox');
+    box.id = 'ac-' + uid();
     input.after(box);
     input.setAttribute('autocomplete', 'off');
+    input.setAttribute('role', 'combobox');
     input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', box.id);
+    input.setAttribute('aria-expanded', 'false');
+    const mark = () => {
+      box.querySelectorAll('li').forEach((li, i) => { li.classList.toggle('on', i === active); li.setAttribute('aria-selected', i === active ? 'true' : 'false'); });
+      if (active >= 0 && !box.hidden) input.setAttribute('aria-activedescendant', box.id + '-' + active); else input.removeAttribute('aria-activedescendant');
+      input.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+    };
     let items = [], active = -1;
     function show() {
       const q = input.value.trim().toLowerCase();
@@ -1575,11 +1709,12 @@
       items = all.filter(e => !q || e.value.toLowerCase().includes(q)).filter(e => e.value.toLowerCase() !== q)
         .sort((a, b) => (b.value.toLowerCase().startsWith(q) - a.value.toLowerCase().startsWith(q)) || b.count - a.count).slice(0, 6);
       active = items.length && q ? 0 : -1;
-      if (!items.length) { box.hidden = true; return; }
-      box.innerHTML = items.map((e, i) => '<li role="option" data-i="' + i + '" class="' + (i === active ? 'on' : '') + '"><span>' + esc(e.value) + '</span>' + (e.sub ? '<small>' + esc(e.sub) + '</small>' : '') + '</li>').join('');
+      if (!items.length) { box.hidden = true; mark(); return; }
+      box.innerHTML = items.map((e, i) => '<li role="option" id="' + box.id + '-' + i + '" data-i="' + i + '" class="' + (i === active ? 'on' : '') + '"><span>' + esc(e.value) + '</span>' + (e.sub ? '<small>' + esc(e.sub) + '</small>' : '') + '</li>').join('');
       box.hidden = false;
+      mark();
     }
-    function hide() { box.hidden = true; active = -1; }
+    function hide() { box.hidden = true; active = -1; mark(); }
     function choose(i) { const e = items[i]; if (!e) return; input.value = e.value; hide(); if (onPick) onPick(e); input.dispatchEvent(new Event('input', { bubbles: true })); hide(); }
     input.addEventListener('input', e => { if (e.isTrusted) show(); });
     input.addEventListener('focus', show);
@@ -1589,7 +1724,7 @@
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-        box.querySelectorAll('li').forEach((li, i) => li.classList.toggle('on', i === active));
+        mark();
       } else if ((e.key === 'Enter' || e.key === 'Tab') && active >= 0) { e.preventDefault(); choose(active); }
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hide(); }
     });
@@ -1639,6 +1774,7 @@
       const name = val('l-name'); if (!name) return fail('Give it a name.');
       const pay = num(val('l-pay')); if (!(pay > 0)) return fail('Enter the monthly amount.');
       const due = Math.min(31, Math.max(1, parseInt(val('l-due'), 10) || 1));
+      if (!isNew) l = fresh(state.liabilities, l);
       const rec = isNew ? { id: uid(), type: l.type } : l;
       Object.assign(rec, { name, payment: round2(pay), dueDay: due, categoryId: val('l-cat') });
       if (debt) {
@@ -1665,6 +1801,7 @@
       const target = num(val('g-target')); if (!(target > 0)) return fail('Enter a target amount.');
       const saved = num(val('g-saved')); const monthly = num(val('g-monthly'));
       const d = val('g-date');
+      if (!isNew) g = fresh(state.goals, g);
       const rec = isNew ? { id: uid() } : g;
       Object.assign(rec, { name, target: round2(target), saved: isFinite(saved) && saved > 0 ? round2(saved) : 0, date: d ? d + '-01' : '', monthly: isFinite(monthly) && monthly > 0 ? round2(monthly) : 0 });
       if (isNew) state.goals.push(rec);
@@ -1674,6 +1811,7 @@
   function contributeForm(g) {
     openModal('Add money to ' + g.name, field('Amount', '<input id="c-amt" inputmode="decimal" placeholder="0.00">'), () => {
       const a = num(val('c-amt')); if (!isFinite(a) || a === 0) return fail('Enter an amount.');
+      g = fresh(state.goals, g);
       g.saved = round2(Math.max(0, g.saved + a));
     }, null, 'Add', { kind: 'contribute', id: g.id });
   }
@@ -1704,7 +1842,7 @@
       case 'pick-plan': selectedPlan = id; render(); break;
       case 'apply-plan': applyPlan(id); break;
       case 'use-income': state.income = detectedIncome(); save(); break;
-      case 'search-pattern': txnFilter = { q: b.dataset.q, cat: '' }; location.hash = '#transactions'; window.scrollTo(0, 0); break;
+      case 'search-pattern': txnFilter = { q: b.dataset.q, cat: '' }; viewMonth = monthKey(new Date()); if (location.hash === '#transactions') render(); else location.hash = '#transactions'; window.scrollTo(0, 0); break;
       case 'dismiss-strain': { const k = monthKey(new Date()); state.dismissedStrain = state.dismissedStrain || {}; (state.dismissedStrain[k] = state.dismissedStrain[k] || []).push(id); save(); break; }
       case 'view-cat': txnFilter = { q: '', cat: id }; if (location.hash === '#transactions') render(); else location.hash = '#transactions'; window.scrollTo(0, 0); break;
       case 'toggle-essential': { const c = state.categories.find(x => x.id === id); if (c) { c.essential = !isEssential(c); save(); } break; }
@@ -1721,20 +1859,28 @@
         const days = daysInMonth(viewMonth);
         const isCurrent = viewMonth === monthKey(new Date());
         const d = isCurrent ? todayISO() : viewMonth + '-' + pad(Math.min(l.dueDay || 1, days));
-        state.transactions.push({ id: uid(), created: Date.now(), type: 'expense', amount: l.payment, date: d, merchant: l.name, categoryId: l.categoryId, note: l.type === 'debt' ? 'Debt payment' : 'Bill', items: [], liabilityId: l.id });
-        if (l.type === 'debt') { const interest = (l.balance || 0) * ((l.apr || 0) / 100 / 12); l.balance = round2(Math.max(0, l.balance - Math.max(0, l.payment - interest))); }
+        const txn = { id: uid(), created: Date.now(), type: 'expense', amount: l.payment, date: d, merchant: l.name, categoryId: l.categoryId, note: l.type === 'debt' ? 'Debt payment' : 'Bill', items: [], liabilityId: l.id };
+        if (l.type === 'debt') {
+          // The balance is today's balance, so only this month's payment lowers it. Catching up an old month just logs the payment.
+          const before = l.balance || 0;
+          if (isCurrent) { const interest = before * ((l.apr || 0) / 100 / 12); l.balance = round2(Math.max(0, before - Math.max(0, l.payment - interest))); }
+          txn.balanceDelta = round2(before - l.balance);
+        }
+        state.transactions.push(txn);
         save(); break;
       }
       case 'unpay': {
         const t = paymentFor(id, viewMonth);
         const l = state.liabilities.find(x => x.id === id);
         if (t) {
-          if (l && l.type === 'debt') { const r = (l.apr || 0) / 100 / 12; l.balance = round2((l.balance + t.amount) / (1 + r)); }
+          refundDebtPayment(t);
           state.transactions = state.transactions.filter(x => x !== t);
         }
         save(); break;
       }
       case 'sample': loadSample(); break;
+      case 'export': $('#exportBtn').click(); break;
+      case 'import': $('#importFile').click(); break;
     }
   });
 
@@ -1751,11 +1897,24 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
+  $('#importBtn').addEventListener('click', () => $('#importFile').click());
   $('#importFile').addEventListener('change', e => {
     const f = e.target.files[0]; if (!f) return;
     f.text().then(txt => {
       const s = JSON.parse(txt);
       if (!s || !Array.isArray(s.categories) || !Array.isArray(s.transactions)) throw new Error('bad');
+      const okTxn = t => t && typeof t.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && isFinite(t.amount) && (t.type === 'expense' || t.type === 'income');
+      if (!s.transactions.every(okTxn) || !s.categories.every(c => c && typeof c.id === 'string' && typeof c.name === 'string')) throw new Error('bad');
+      const idOk = x => x && /^[A-Za-z0-9_-]{1,40}$/.test(x.id);
+      const n0 = v => (isFinite(+v) ? +v : 0);
+      s.liabilities = Array.isArray(s.liabilities) ? s.liabilities : [];
+      s.goals = Array.isArray(s.goals) ? s.goals : [];
+      if (![s.transactions, s.categories, s.liabilities, s.goals].every(list => list.every(idOk))) throw new Error('bad');
+      s.transactions.forEach(t => { t.amount = +t.amount; if (!Array.isArray(t.items)) t.items = []; t.items = t.items.filter(i => i && typeof i.name === 'string').map(i => ({ name: i.name, amount: n0(i.amount) })); });
+      s.categories.forEach(c => { c.budget = n0(c.budget); });
+      s.liabilities.forEach(l => { l.name = String(l.name || ''); ['payment', 'balance', 'apr', 'dueDay'].forEach(f => { l[f] = n0(l[f]); }); });
+      s.goals.forEach(g => { g.name = String(g.name || ''); ['target', 'saved', 'monthly'].forEach(f => { g[f] = n0(g[f]); }); if (!/^\d{4}-\d{2}(-\d{2})?$/.test(g.date || '')) g.date = ''; });
+      s.income = n0(s.income);
       if (confirm('Replace everything in Budgt with this backup?')) { state = Object.assign(blankState(), s); save(); }
     }).catch(() => alert('That file isn\'t a Budgt backup.')).finally(() => { e.target.value = ''; });
   });
