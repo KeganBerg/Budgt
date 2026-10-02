@@ -117,6 +117,8 @@ svg { display: block; }
 
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
 .stats.three { grid-template-columns: repeat(3, 1fr); }
+.stats.five { grid-template-columns: repeat(5, 1fr); }
+.stats.five .stat-value { font-size: clamp(1.25rem, 1.7vw, 1.65rem); }
 .stats .card + .card { margin-top: 0; }
 .stat-label { margin: 0; color: var(--muted); font-size: 0.82rem; font-weight: 500; }
 .stat-value { margin: 4px 0 2px; font-size: 1.65rem; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
@@ -264,7 +266,8 @@ dialog form { padding: 20px; max-height: calc(100vh - 48px); overflow-y: auto; }
 
 /* Responsive */
 @media (max-width: 1100px) {
-  .stats { grid-template-columns: repeat(2, 1fr); }
+  .stats, .stats.five { grid-template-columns: repeat(2, 1fr); }
+  .stats.five .card:first-child { grid-column: 1 / -1; }
   .grid { grid-template-columns: 1fr 1fr; }
   .span-2 { grid-column: 1 / -1; }
 }
@@ -281,7 +284,7 @@ dialog form { padding: 20px; max-height: calc(100vh - 48px); overflow-y: auto; }
   .topbar { gap: 10px; }
   .topbar h1 { font-size: 1.35rem; }
   .month-picker { order: 3; width: 100%; justify-content: space-between; }
-  .stats, .stats.three { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stats, .stats.three, .stats.five { grid-template-columns: 1fr 1fr; gap: 10px; }
   .stats.three .card:first-child { grid-column: 1 / -1; }
   .grid { grid-template-columns: 1fr; }
   .stat-value { font-size: 1.3rem; }
@@ -839,3 +842,14 @@ select.csv-cat { padding: 6px 8px; font-size: 0.82rem; }
 .sweep-banner { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--pos); }
 .sweep-banner .sb-icon { display: none; }
 .csv-map { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding: 10px 0 0; }
+
+/* Catch up after time away */
+.catchup-banner { border-left-color: var(--brand); }
+.cu-facts { display: flex; gap: 8px 28px; flex-wrap: wrap; margin: 4px 0 10px; }
+.cu-facts div { display: flex; flex-direction: column; }
+.cu-facts b { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cu-facts small { font-size: 0.75rem; color: var(--muted); }
+.cu-log { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin-bottom: 12px; }
+.cu-log input { width: 18px; height: 18px; accent-color: var(--brand); }
+.cu-head { margin: 6px 0 4px; font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+#cuSum + .cu-head + .csv-rows .csv-row { grid-template-columns: auto minmax(0, 1fr) auto; }

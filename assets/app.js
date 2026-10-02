@@ -24,6 +24,7 @@
       goals: [],
       funds: [],    // yearly and irregular costs saved for a little each month (sinking funds)
       sweeps: {},   // month key -> what was done with that month's leftover budget
+      openings: {}, // month key -> account balance on the 1st
     };
   }
 
@@ -556,14 +557,16 @@
     const diff = spent - prevToDate;
     const debt = round2(state.liabilities.filter(l => l.type === 'debt').reduce((a, l) => a + (l.balance || 0), 0));
     const left = budget - spent;
+    const bal = balanceOn(isCurrent ? todayISO() : viewMonth + '-' + pad(daysInMonth(viewMonth)));
 
-    let html = '<div class="stats">';
+    let html = '<div class="stats' + (bal !== null ? ' five' : '') + '">';
+    if (bal !== null) html += statCard('Balance', money0(bal), '<button type="button" class="link-btn small-link" data-act="catch-up">Update</button>', bal < 0 ? 'neg' : '');
     html += statCard('Left to spend', budget ? money0(left) : '—', budget ? (left >= 0 ? 'of ' + money0(budget) + ' budget' : money0(-left) + ' over budget') : '<a href="#budget">Set a budget</a>', left < 0 ? 'neg' : '');
     html += statCard('Spent', money0(spent), (diff <= 0 ? money0(-diff) + ' less' : money0(diff) + ' more') + ' than last month', diff > 0 ? 'neg' : 'pos');
     html += statCard('Income', money0(income), (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' net', income - spent >= 0 ? 'pos' : 'neg');
     html += statCard('Total debt', money0(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
     html += '</div>';
-    html += sweepBanner();
+    html += catchUpBanner() || sweepBanner();
     html += strainBanner();
 
     html += '<div class="grid">';
@@ -980,11 +983,20 @@
     const det = detectedIncome();
     const alerts = findPatterns().filter(p => p.level !== 'low').length;
     root.innerHTML = '<div class="card income-card"><label class="income-field"><span>Monthly take-home income</span><span class="money-input big"><span>$</span><input inputmode="decimal" id="incomeInput" value="' + (state.income || '') + '" placeholder="' + (det ? det : '0') + '" aria-label="Monthly take-home income"></span></label>' +
+      '<label class="income-field"><span>Balance on ' + esc(monthName(viewMonth, { month: 'short' })) + ' 1</span><span class="money-input big"><span>$</span><input inputmode="decimal" id="openingInput" value="' + ((state.openings || {})[viewMonth] ?? '') + '" placeholder="' + (openingFor(viewMonth) ?? '0') + '" aria-label="Starting balance for ' + esc(monthName(viewMonth)) + '"></span></label>' +
       '<p class="muted small">' + (state.income > 0 ? 'Used for budget plans and strain alerts.' + (det && Math.abs(det - state.income) > 1 ? ' Your logged income averages ' + money0(det) + '/mo.' : '') : det ? 'Using your ' + money0(det) + '/mo average. <button type="button" class="link-btn small-link" data-act="use-income">Use ' + money0(det) + '</button>' : 'After tax. Budget plans are built from this.') + '</p></div>' +
       '<nav class="subtabs" aria-label="Budget sections"><a href="#budget"' + (!sub ? ' class="on"' : '') + '>Categories</a><a href="#budget/plans"' + (sub === 'plans' ? ' class="on"' : '') + '>Budget plans</a><a href="#budget/patterns"' + (sub === 'patterns' ? ' class="on"' : '') + '>Patterns' + (alerts ? ' <span class="count">' + alerts + '</span>' : '') + '</a></nav><div id="budgetSub"></div>';
     const inc = $('#incomeInput');
     inc.addEventListener('input', () => { const v = num(inc.value); state.income = isFinite(v) && v > 0 ? round2(v) : 0; persist(); });
     inc.addEventListener('change', () => save());
+    const op = $('#openingInput');
+    op.addEventListener('input', () => {
+      const v = num(op.value);
+      state.openings = state.openings || {};
+      if (op.value.trim() && isFinite(v)) state.openings[viewMonth] = round2(v); else delete state.openings[viewMonth];
+      persist();
+    });
+    op.addEventListener('change', () => save());
     const el = $('#budgetSub');
     if (sub === 'plans') return renderPlans(el);
     if (sub === 'patterns') return renderPatterns(el);
@@ -2316,6 +2328,153 @@
     save();
   }
 
+  // ---------- account balance and catching up after time away ----------
+  // state.openings[month] is the balance on the 1st, before that day's entries. A month without one
+  // carries over from the nearest earlier month that has one, plus every month's net in between.
+  function netOf(list) { return list.reduce((a, t) => a + (t.type === 'income' ? t.amount : -t.amount), 0); }
+  function openingFor(k, extra) {
+    const o = state.openings || {};
+    const all = state.transactions.concat(extra || []);
+    let m = Object.keys(o).filter(x => x <= k).sort().pop();
+    if (!m) return null;
+    let b = o[m];
+    while (m < k) { const mm = m; b += netOf(all.filter(t => t.date.slice(0, 7) === mm)); m = shiftMonth(m, 1); if (m in o) b = o[m]; }
+    return round2(b);
+  }
+  function balanceOn(iso, extra) {
+    const open = openingFor(iso.slice(0, 7), extra);
+    if (open === null) return null;
+    const k = iso.slice(0, 7);
+    return round2(open + netOf(state.transactions.concat(extra || []).filter(t => t.date.slice(0, 7) === k && t.date <= iso)));
+  }
+  function daysApart(a, b) { const p = s => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); }; return Math.round((p(b) - p(a)) / 864e5); }
+  function lastActive() { return state.lastSeen || state.transactions.reduce((a, t) => (t.date <= todayISO() && t.date > a ? t.date : a), '') || ''; }
+
+  // Mark when the app is opened. Coming back after a week, or in a new month, offers a catch-up.
+  (function markVisit() {
+    if (!state.transactions.length && !state.liabilities.length) return;
+    const today = todayISO(), last = lastActive();
+    if (last && !state.catchUpFrom && last < today && (daysApart(last, today) >= 7 || last.slice(0, 7) < today.slice(0, 7))) state.catchUpFrom = last;
+    if (state.lastSeen !== today) { state.lastSeen = today; persist(); }
+  })();
+
+  // Paychecks and bills that came due between `from` and today and aren't logged yet.
+  function missedEntries(from) {
+    const today = todayISO(), cur = monthKey(new Date());
+    const out = [];
+    const logged = (type, name, amount, date) => {
+      const key = merchantKey(name);
+      return state.transactions.some(t => t.type === type && Math.abs(daysApart(t.date, date)) <= 3 && (merchantKey(t.merchant).includes(key) || round2(t.amount) === round2(amount)));
+    };
+    // Income that repeats: the same payer in at least two of the months before you left.
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const s = new Date(fy, fm - 1, fd - 100), since = s.getFullYear() + '-' + pad(s.getMonth() + 1) + '-' + pad(s.getDate());
+    const groups = {};
+    state.transactions.filter(t => t.type === 'income' && t.date <= from && t.date >= since).forEach(t => { (groups[merchantKey(t.merchant)] = groups[merchantKey(t.merchant)] || []).push(t); });
+    Object.values(groups).forEach(g => {
+      // Paydays are the days of the month seen in two or more months, paid what that payer paid last.
+      const seen = {};
+      g.forEach(t => { const d = Number(t.date.slice(8, 10)); (seen[d] = seen[d] || new Set()).add(t.date.slice(0, 7)); });
+      const days = Object.keys(seen).filter(d => seen[d].size >= 2).map(Number);
+      const latest = g.slice().sort((a, b) => a.date.localeCompare(b.date)).pop();
+      for (let m = from.slice(0, 7); m <= cur; m = shiftMonth(m, 1)) {
+        days.forEach(day => {
+          const t = latest;
+          const date = m + '-' + pad(Math.min(day, daysInMonth(m)));
+          if (date <= from || date > today || logged('income', t.merchant, t.amount, date)) return;
+          out.push({ type: 'income', amount: t.amount, date, merchant: t.merchant, categoryId: 'income', on: true });
+        });
+      }
+    });
+    // Bills and debt payments due since you left (or earlier that month) that aren't marked paid.
+    for (let m = from.slice(0, 7); m <= cur; m = shiftMonth(m, 1)) {
+      dueIn(m).filter(l => l.payment > 0).forEach(l => {
+        const date = m + '-' + pad(Math.min(l.dueDay || 1, daysInMonth(m)));
+        if (date > today || paymentFor(l.id, m) || logged('expense', l.name, l.payment, date)) return;
+        out.push({ type: 'expense', amount: l.payment, date, merchant: l.name, categoryId: l.categoryId, liabilityId: l.id, on: true });
+      });
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  function catchUpBanner() {
+    if (viewMonth !== monthKey(new Date()) || !state.catchUpFrom) return '';
+    const from = state.catchUpFrom;
+    const list = missedEntries(from);
+    const inc = list.filter(t => t.type === 'income').length, bills = list.length - inc;
+    const facts = (inc ? '<span><b>' + inc + '</b> paycheck' + (inc > 1 ? 's' : '') + '</span>' : '') + (bills ? '<span><b>' + bills + '</b> bill' + (bills > 1 ? 's' : '') + '</span>' : '');
+    return '<div class="sweep-banner catchup-banner" role="region" aria-label="Catch up"><span class="sb-icon" aria-hidden="true">↻</span><div><b>Away since ' + esc(shortDate(from)) + '</b><p class="sb-facts">' + (facts || '<span>Enter your balance to pick up where you left off</span>') + '</p></div>' +
+      '<div class="row-actions"><button type="button" class="btn btn-sm" data-act="catch-up">Catch up</button><button type="button" class="btn btn-ghost btn-sm" data-act="skip-catch-up">Not now</button></div></div>';
+  }
+
+  // Ask for today's balance, add what came due while away, and log any gap as one entry to edit later.
+  function catchUpForm() {
+    const today = todayISO(), cur = monthKey(new Date());
+    const list = state.catchUpFrom ? missedEntries(state.catchUpFrom) : [];
+    const other = state.categories.find(c => /^other/i.test(c.name)) || state.categories[state.categories.length - 1] || { id: '' };
+    const known = balanceOn(today) !== null;
+    const rowHtml = (t, i) => '<li class="csv-row' + (t.on ? '' : ' off') + '"><input type="checkbox" data-cu-on="' + i + '"' + (t.on ? ' checked' : '') + ' aria-label="Add ' + esc(t.merchant) + '">' +
+      '<span class="csv-main"><b>' + esc(t.merchant) + '</b><small>' + esc(shortDate(t.date)) + (t.liabilityId ? ' · Bill' : '') + '</small></span>' +
+      '<span class="csv-amt' + (t.type === 'income' ? ' pos' : '') + '">' + (t.type === 'income' ? '+' : '−') + money(t.amount) + '</span></li>';
+    let logGap = true;
+    const gapOf = () => {
+      const b = num(val('cu-bal'));
+      const expected = balanceOn(today, list.filter(t => t.on));
+      return { b, expected, gap: isFinite(b) && expected !== null ? round2(expected - b) : null };
+    };
+    const summary = () => {
+      const { b, expected, gap } = gapOf();
+      if (expected === null) return '<p class="csv-sum">First balance. Budgt tracks it from here.</p>';
+      let html = '<div class="cu-facts"><div><b>' + money(expected) + '</b><small>Expected</small></div>';
+      if (gap !== null && Math.abs(gap) >= 0.01) html += '<div><b class="' + (gap > 0 ? 'neg' : 'pos') + '">' + (gap > 0 ? '−' : '+') + money(Math.abs(gap)) + '</b><small>' + (gap > 0 ? 'Unlogged spending' : 'Unlogged income') + '</small></div>';
+      else if (isFinite(b)) html += '<div><b class="pos">✓</b><small>Matches</small></div>';
+      return html + '</div>' + (gap !== null && Math.abs(gap) >= 0.01 ? '<label class="cu-log"><input type="checkbox" id="cu-log"' + (logGap ? ' checked' : '') + '> Log the gap so the numbers match</label>' : '');
+    };
+    const body = field('Balance today', '<span class="money-input big"><span>$</span><input id="cu-bal" inputmode="decimal" placeholder="' + (known ? balanceOn(today, list) : '0.00') + '" aria-label="Balance today"></span>', 'full') +
+      '<div id="cuSum"></div>' +
+      (list.length ? '<p class="cu-head">Since ' + esc(shortDate(state.catchUpFrom)) + '</p><ul class="csv-rows">' + list.map(rowHtml).join('') + '</ul>' : '');
+    openModal('Catch up', body, () => {
+      const { b, gap } = gapOf();
+      if (!isFinite(b)) return fail('Enter your balance today.');
+      const now = Date.now();
+      list.filter(t => t.on).forEach((t, i) => {
+        const txn = { id: uid(), created: now + i, type: t.type, amount: t.amount, date: t.date, merchant: t.merchant, categoryId: t.categoryId, note: t.liabilityId ? 'Bill' : '', items: [] };
+        const l = t.liabilityId && state.liabilities.find(x => x.id === t.liabilityId);
+        if (l) {
+          txn.liabilityId = l.id;
+          if (l.type === 'debt') { txn.note = 'Debt payment'; const before = l.balance || 0; l.balance = round2(Math.max(0, before - Math.max(0, l.payment - before * ((l.apr || 0) / 100 / 12)))); txn.balanceDelta = round2(before - l.balance); }
+        }
+        state.transactions.push(txn);
+      });
+      if (gap !== null && Math.abs(gap) >= 0.01 && logGap) {
+        // Spread the gap over the days away, one entry per month, so each month's budget gets its share.
+        const from = state.catchUpFrom && state.catchUpFrom < today ? state.catchUpFrom : today;
+        const total = Math.max(1, daysApart(from, today));
+        let left = Math.abs(gap);
+        for (let m = from.slice(0, 7); m <= cur; m = shiftMonth(m, 1)) {
+          const end = m === cur ? today : m + '-' + pad(daysInMonth(m));
+          const start = m === from.slice(0, 7) ? from : m + '-01';
+          const amt = m === cur ? round2(left) : round2(Math.abs(gap) * (daysApart(start, end) + (start === from ? 0 : 1)) / total);
+          left = round2(left - amt);
+          if (amt >= 0.01) state.transactions.push({ id: uid(), created: now + list.length, type: gap > 0 ? 'expense' : 'income', amount: amt, date: end, merchant: gap > 0 ? 'Unlogged spending' : 'Unlogged income', categoryId: gap > 0 ? other.id : 'income', note: 'From catching up. Edit or split it once you know what it was.', items: [], adjust: true });
+        }
+      }
+      // Anchor this month so today's balance is exactly what was entered.
+      state.openings = state.openings || {};
+      state.openings[cur] = round2(b - netOf(txnsIn(cur).filter(t => t.date <= today)));
+      delete state.catchUpFrom;
+      viewMonth = cur;
+    }, null, 'Catch up');
+    const sumBox = $('#cuSum');
+    const paint = () => { sumBox.innerHTML = summary(); };
+    paint();
+    $('#cu-bal').addEventListener('input', paint);
+    sumBox.addEventListener('change', e => { if (e.target.id === 'cu-log') logGap = e.target.checked; });
+    modal.querySelectorAll('[data-cu-on]').forEach(cb => cb.addEventListener('change', () => {
+      list[+cb.dataset.cuOn].on = cb.checked; cb.closest('li').classList.toggle('off', !cb.checked); paint();
+    }));
+  }
+
   // ---------- actions ----------
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
@@ -2379,6 +2538,8 @@
       case 'sweep': doSweep(id); break;
       case 'skip-sweep': state.sweeps = state.sweeps || {}; state.sweeps[id] = { skipped: true }; save(); break;
       case 'undo-sweep': undoSweep(); break;
+      case 'catch-up': catchUpForm(); break;
+      case 'skip-catch-up': delete state.catchUpFrom; save(); break;
       case 'export': $('#exportBtn').click(); break;
       case 'import': $('#importFile').click(); break;
     }
@@ -2422,6 +2583,9 @@
       s.funds.forEach(f => { f.name = String(f.name || ''); ['amount', 'saved', 'every'].forEach(k => { f[k] = n0(f[k]); }); if (!/^\d{4}-\d{2}$/.test(f.due || '')) f.due = monthKey(new Date()); });
       s.sweeps = s.sweeps && typeof s.sweeps === 'object' && !Array.isArray(s.sweeps) ? s.sweeps : {};
       s.income = n0(s.income);
+      const op = s.openings && typeof s.openings === 'object' && !Array.isArray(s.openings) ? s.openings : {};
+      s.openings = {}; Object.keys(op).forEach(k => { if (/^\d{4}-\d{2}$/.test(k) && isFinite(+op[k])) s.openings[k] = +op[k]; });
+      ['lastSeen', 'catchUpFrom'].forEach(k => { if (!/^\d{4}-\d{2}-\d{2}$/.test(s[k] || '')) delete s[k]; });
       if (confirm('Replace everything in Budgt with this backup?')) { state = Object.assign(blankState(), s); save(); }
     }).catch(() => alert('That file isn\'t a Budgt backup.')).finally(() => { e.target.value = ''; });
   });
@@ -2473,6 +2637,7 @@
       { id: uid(), name: 'Car insurance', amount: 900, every: 6, due: shiftMonth(cur, 3), saved: 450, categoryId: cat('Transport') },
       { id: uid(), name: 'Holiday gifts', amount: 600, every: 12, due: shiftMonth(cur, 5), saved: 100, categoryId: cat('Shopping') },
     ];
+    s.lastSeen = todayISO();
     state = s; viewMonth = cur; sweptNote = null;
     save();
   }
