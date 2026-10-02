@@ -2606,42 +2606,66 @@
 
   function rangeLabel(a, b) { return a === b ? shortDate(a) : shortDate(a) + ' – ' + (a.slice(0, 7) === b.slice(0, 7) ? String(+b.slice(8, 10)) : shortDate(b)); }
 
-  // One pay period: the paycheck, then a bar split into bills, savings, held back and free, then the bills.
-  function periodBlock(p, plan, full) {
+  // One pay period, read like a receipt: what comes in, what goes out, and what's left. Tap to open the bills.
+  const openPeriods = new Set();
+  let periodsTouched = false;
+  document.addEventListener('toggle', e => {
+    const d = e.target;
+    if (!d.matches || !d.matches('details.pp')) return;
+    periodsTouched = true;
+    if (d.open) openPeriods.add(d.dataset.start); else openPeriods.delete(d.dataset.start);
+  }, true);
+  function periodBlock(p, plan, i) {
     const base = Math.max(1, p.have);
-    const seg = (cls, v, label) => v > 0 ? '<i class="' + cls + '" style="width:' + Math.min(100, v / base * 100).toFixed(1) + '%" title="' + esc(label + ' ' + money0(v)) + '"></i>' : '';
-    const head = p.current
-      ? '<span class="pp-when"><b>Now</b><small>to ' + esc(weekday(p.end)) + ' ' + esc(shortDate(p.end)) + ' · ' + plural(plan.cur.days, 'day') + '</small></span>' +
-        '<span class="pp-in">' + (p.bal === null ? '<a href="#" data-act="catch-up">Enter balance</a>' : money0(p.bal) + (p.pay ? ' <small>+ ' + money0(p.pay) + '</small>' : '')) + '</span>'
-      : '<span class="pp-when"><b>' + esc(weekday(p.start)) + ' ' + esc(shortDate(p.start)) + '</b><small>' + esc(rangeLabel(p.start, p.end)) + '</small></span><span class="pp-in pos">+' + money0(p.pay) + '</span>';
-    let html = '<li class="pp' + (p.current ? ' pp-now' : '') + '"><div class="pp-head">' + head + '</div>';
-    if (p.current && p.bal === null) return html + '</li>';
-    html += '<div class="pp-bar" role="img" aria-label="' + esc('Bills ' + money0(p.billsTotal) + (p.save ? ', save ' + money0(p.save) : '') + (p.hold ? ', held for later ' + money0(p.hold) : '') + ', free ' + money0(p.free)) + '">' +
-      seg('pp-bills', p.billsTotal, 'Bills') + seg('pp-save', p.save, 'Save') + seg('pp-hold', p.hold, 'Held for ' + (p.holdFor ? shortDate(p.holdFor) : 'later')) + '</div>';
-    const facts = [['Bills', p.billsTotal, '']];
-    if (p.save) facts.push(['Save', p.save, '']);
-    if (p.hold) facts.push(['Hold', p.hold, 'For the bills due after ' + shortDate(p.holdFor) + '. Asking those companies to move the due date to just after a payday frees this up.']);
-    if (p.usual) facts.push(['Usual', p.usual, 'What you usually spend outside bills over these days, from your last 90 days']);
-    facts.push(['Free', p.free, p.free < 0 ? 'neg' : p.free < p.usual ? 'warn' : 'pos']);
-    html += '<div class="pp-facts">' + facts.map(([l, v, t]) => '<span' + (l === 'Hold' || l === 'Usual' ? ' title="' + esc(t) + '"' : '') + '>' + l + ' <b class="' + (l === 'Free' ? t : '') + '">' + (v < 0 ? '−' : '') + money0(Math.abs(v)) + '</b></span>').join('') + '</div>';
-    if (full && p.short) html += '<p class="pp-tip neg">' + money0(-p.free) + ' short. Essentials first, then debt minimums. Ask to move the rest past payday.</p>';
-    if (full && (p.bills.length || (p.pending || []).length)) {
+    const seg = (cls, v) => v > 0 ? '<i class="' + cls + '" style="width:' + Math.min(100, v / base * 100).toFixed(1) + '%"></i>' : '';
+    const days = p.current ? plan.cur.days : daysApart(p.start, p.end) + 1;
+    const tone = p.free < 0 ? 'neg' : p.usual && p.free < p.usual ? 'warn' : '';
+    const noBal = p.current && p.bal === null;
+    const open = periodsTouched ? openPeriods.has(p.start) : i < 2;
+    const when = p.current
+      ? '<b>Now</b><small>Until ' + esc(weekday(p.next.date)) + ' ' + esc(shortDate(p.next.date)) + ' · ' + plural(days, 'day') + '</small>'
+      : '<b>' + esc(weekday(p.start)) + ' ' + esc(shortDate(p.start)) + '</b><small>Payday · ' + plural(days, 'day') + '</small>';
+    const amt = noBal
+      ? '<span class="pp-amt"><button type="button" class="link-btn small-link" data-act="catch-up">Enter balance</button></span>'
+      : '<span class="pp-amt"><b class="' + tone + '">' + (p.free < 0 ? '−' : '') + money0(Math.abs(p.free)) + '</b><small>' + (p.free < 0 ? 'short' : 'left to spend') + '</small></span>';
+    let html = '<li><details class="pp' + (p.current ? ' pp-now' : '') + '" data-start="' + p.start + '"' + (open ? ' open' : '') + '><summary class="pp-head"><span class="pp-when">' + when + '</span>' + amt + '<svg class="pp-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>';
+    if (!noBal) html += '<div class="pp-bar" aria-hidden="true">' + seg('pp-bills', p.billsTotal) + seg('pp-save', p.save) + seg('pp-hold', p.hold) + '</div>';
+    html += '<div class="pp-body">';
+    if (noBal) return html + '<p class="muted small">Add today\'s balance to see what\'s left until payday.</p></div></details></li>';
+    // The math, one line each.
+    const rows = [];
+    if (p.current) {
+      rows.push(['', 'Balance today', p.bal, true]);
+      if (p.pay) rows.push(['', 'Paycheck not logged yet', p.pay]);
+    } else rows.push(['', p.payday.from.map(s => s.name).join(' + '), p.pay]);
+    rows.push(['pp-bills', 'Bills', -p.billsTotal]);
+    if (p.save) rows.push(['pp-save', 'Savings and yearly costs', -p.save]);
+    if (p.hold) rows.push(['pp-hold', 'Keep for ' + shortDate(p.holdFor) + ' bills', -p.hold]);
+    html += '<dl class="pp-math">' + rows.map(([k, l, v, plain]) => '<div><dt>' + (k ? '<i class="' + k + '"></i>' : '') + esc(l) + '</dt><dd class="' + (v > 0 && !plain ? 'pos' : '') + '">' + (plain ? (v < 0 ? '−' : '') : v > 0 ? '+' : v < 0 ? '−' : '') + money0(Math.abs(v)) + '</dd></div>').join('') +
+      '<div class="pp-total"><dt>Left to spend</dt><dd class="' + tone + '">' + (p.free < 0 ? '−' : '') + money0(Math.abs(p.free)) + (p.current && p.free > 0 ? ' <small>' + money0(plan.perDay) + '/day</small>' : '') + '</dd></div></dl>';
+    if (p.usual && p.free >= 0) html += '<p class="pp-note' + (tone ? ' ' + tone : '') + '">You usually spend about ' + money0(p.usual) + ' in ' + plural(days, 'day') + (p.free < p.usual ? ', so this will be tight.' : '.') + '</p>';
+    if (p.short) html += '<p class="pp-note neg">' + money0(-p.free) + ' short. Pay essentials first, then debt minimums, and ask to move the rest past payday.</p>';
+    if (p.hold) html += '<p class="pp-note">A later paycheck can\'t cover its bills, so some of this one is kept back. Moving a due date to just after payday frees it up.</p>';
+    if (p.bills.length || (p.pending || []).length) {
       const today = todayISO();
-      html += '<ul class="pp-bills-list">' + (p.pending || []).map(x => '<li><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.s.name) + '</span><b class="pos">+' + money0(x.amount) + '</b><button type="button" class="chip" data-act="log-pay" data-id="' + x.s.id + '" data-date="' + x.date + '">Log</button></li>').join('') +
-        p.bills.map(x => '<li' + (x.date < today ? ' class="late"' : '') + '><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.l.name) + (x.tier ? '<small class="' + (x.short ? 'neg' : 'muted') + '">' + (x.short ? 'Short · ' : '') + TIER_LABEL[x.tier] + '</small>' : '') + '</span><b>' + money0(x.amount) + '</b>' +
-          (p.current ? '<button type="button" class="chip" data-act="pay" data-id="' + x.l.id + '" data-month="' + x.month + '">Paid</button>' : '<span></span>') + '</li>').join('') + '</ul>';
-    }
-    return html + '</li>';
+      html += '<ul class="pp-bills-list">' + (p.pending || []).map(x => '<li><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.s.name) + '<small class="muted">Payday not logged</small></span><b class="pos">+' + money0(x.amount) + '</b><button type="button" class="chip" data-act="log-pay" data-id="' + x.s.id + '" data-date="' + x.date + '">Log it</button></li>').join('') +
+        p.bills.map(x => '<li' + (x.date < today ? ' class="late"' : '') + '><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.l.name) + (x.tier ? '<small class="' + (x.short ? 'neg' : 'muted') + '">' + (x.short ? 'Short · ' : '') + TIER_LABEL[x.tier] + '</small>' : x.date < today ? '<small class="neg">Overdue</small>' : '') + '</span><b>' + money0(x.amount) + '</b>' +
+          (p.current ? '<button type="button" class="chip" data-act="pay" data-id="' + x.l.id + '" data-month="' + x.month + '">Mark paid</button>' : '<span></span>') + '</li>').join('') + '</ul>';
+    } else html += '<p class="pp-note">No bills due.</p>';
+    return html + '</div></details></li>';
   }
 
   function payScheduleList() {
     const sch = state.paySchedules || [];
-    let html = '<div class="card pay-sched"><div class="card-head"><h3>Pay schedule' + info('Each paycheck pays the bills due before the next one. Add every income source, including side work.') + '</h3>' +
-      (sch.length ? '<span class="head-stat"><b>' + money0(scheduleMonthly()) + '/mo</b></span>' : '') + '<button class="btn btn-ghost btn-sm" data-act="add-pay">+ Income</button></div>';
-    if (!sch.length) return html + '<p class="muted">How much you\'re paid, how often, and your next payday.</p></div>';
+    if (!sch.length) {
+      return '<div class="card empty pay-start"><h3>When do you get paid?</h3><p>Add your paycheck and Budgt splits your bills by payday, starting from today\'s balance, so you always know what\'s left to spend until the next one.</p>' +
+        '<div class="row-actions"><button type="button" class="btn" data-act="add-pay">Add your paycheck</button></div></div>';
+    }
+    let html = '<div class="card pay-sched"><div class="card-head"><h3>Your income' + info('Add every income source, including side work. Tap one to change it.') + '</h3>' +
+      '<span class="head-stat"><b>' + money0(scheduleMonthly()) + '/mo</b></span><button class="btn btn-ghost btn-sm" data-act="add-pay">+ Income</button></div>';
     return html + '<ul class="liabs">' + sch.map(s => {
       const how = s.every === 'semimonthly' ? s.days.map(dayLabel).join(' & ') : s.every === 'monthly' ? 'Monthly on the ' + dayLabel(s.days[0]) : payEvery(s)[1];
-      return '<li><button class="liab" data-act="edit-pay" data-id="' + s.id + '"><span class="liab-main"><b>' + esc(s.name) + '</b><small>' + esc(how.charAt(0).toUpperCase() + how.slice(1)) + ' · next ' + esc(shortDate(nextPayday(s))) + '</small></span><span class="liab-right"><b>' + money(s.amount) + '</b><small class="muted">per paycheck</small></span></button></li>';
+      return '<li><button class="liab" data-act="edit-pay" data-id="' + s.id + '"><span class="liab-main"><b>' + esc(s.name) + '</b><small>' + esc(how.charAt(0).toUpperCase() + how.slice(1)) + ' · next ' + esc(shortDate(nextPayday(s))) + '</small></span><span class="liab-right"><b>' + money0(s.amount) + '</b><small class="muted">each payday</small></span></button></li>';
     }).join('') + '</ul></div>';
   }
 
@@ -2650,7 +2674,7 @@
   function bufferPrompt() {
     if (state.goals.some(g => BUFFER_RE.test(g.name))) return '';
     const per = Math.max(5, r5(2000 / 6 * 12 / Math.max(1, (state.paySchedules || []).reduce((a, s) => a + payEvery(s)[2], 0))));
-    return '<div class="pp-buffer"><span><b>$2,000 buffer</b><small>About ' + money0(per) + ' a paycheck for 6 months</small></span><button type="button" class="btn btn-sm" data-act="add-buffer">Start it</button></div>';
+    return '<div class="pp-buffer"><span><b>Start a $2,000 safety cushion</b><small>About ' + money0(per) + ' a paycheck for 6 months</small></span><button type="button" class="btn btn-sm" data-act="add-buffer">Start</button></div>';
   }
 
   function renderPaychecks(el) {
@@ -2659,35 +2683,31 @@
     if (plan) {
       const c = plan.cur, n = c.next;
       html += '<div class="stats three">' +
-        statCard('Balance', c.bal === null ? '—' : money0(c.bal), c.bal === null ? '<button type="button" class="link-btn small-link" data-act="catch-up">Enter balance</button>' : c.pay ? '+ ' + money0(c.pay) + ' payday not logged' : 'Today', c.bal !== null && c.bal < 0 ? 'neg' : '') +
-        statCard('Next payday', esc(shortDate(n.date)), esc(weekday(n.date)) + ' · <span class="pos">+' + money0(n.amount) + '</span>', '') +
-        statCard('Free until payday', c.bal === null ? '—' : money0(c.free), c.bal === null ? '' : money0(plan.perDay) + '/day', c.free < 0 ? 'neg' : '', 'Balance, minus bills due before your next payday, minus anything held for a later paycheck that can\'t cover its own bills') + '</div>';
+        statCard('Left until payday', c.bal === null ? '—' : (c.free < 0 ? '−' : '') + money0(Math.abs(c.free)), c.bal === null ? '<button type="button" class="link-btn small-link" data-act="catch-up">Enter balance</button>' : c.free > 0 ? money0(plan.perDay) + ' a day for ' + plural(c.days, 'day') : 'Short before payday', c.free < 0 ? 'neg' : '', 'Your balance, minus bills due before your next payday, minus anything kept back for a later paycheck that can\'t cover its own bills') +
+        statCard('Next payday', esc(weekday(n.date)) + ' ' + esc(shortDate(n.date)), '<span class="pos">+' + money0(n.amount) + '</span> · in ' + plural(daysApart(todayISO(), n.date), 'day'), '') +
+        statCard('Balance', c.bal === null ? '—' : money0(c.bal), c.bal === null ? '' : '<button type="button" class="link-btn small-link" data-act="catch-up">Update</button>', c.bal !== null && c.bal < 0 ? 'neg' : '') + '</div>';
+      html += '<div class="card"><div class="card-head"><h3>By paycheck' + info('Each bill is paid from the last paycheck before it\'s due. Savings is each paycheck\'s share of your goals and yearly costs. If money runs short, essentials (housing, utilities, getting to work, insurance) come before debt minimums, which come before everything else.') + '</h3></div>' +
+        bufferPrompt() + '<ol class="pay-periods">' + plan.periods.map((p, i) => periodBlock(p, plan, i)).join('') + '</ol></div>';
     }
     html += payScheduleList();
-    if (plan) {
-      html += '<div class="card"><div class="card-head"><h3>By paycheck' + info('Bills are paid from the last paycheck before they\'re due. Save is each paycheck\'s share of your goals and yearly costs. Hold is kept back for a later paycheck that can\'t cover its own bills. If money runs short, essentials (housing, utilities, getting to work, insurance) come before debt minimums, which come before everything else.') + '</h3>' +
-        '<div class="legend"><span class="lg lg-bills">Bills</span><span class="lg lg-save">Save</span><span class="lg lg-hold">Hold</span><span class="lg lg-free">Free</span></div></div>' +
-        bufferPrompt() + '<ol class="pay-periods">' + plan.periods.map(p => periodBlock(p, plan, true)).join('') + '</ol></div>';
-    } else if ((state.paySchedules || []).length) {
-      html += '<div class="card"><p class="muted">No paydays in the next few months.</p></div>';
-    }
+    if (!plan && (state.paySchedules || []).length) html += '<div class="card"><p class="muted">No paydays in the next few months.</p></div>';
     el.innerHTML = html;
   }
 
-  // Dashboard: what's free until payday, and the next few paychecks at a glance.
+  // Dashboard: what's left until payday, and the next few paychecks at a glance.
   function payStrip() {
     if (viewMonth !== monthKey(new Date())) return '';
     const plan = payPlan(4);
     if (!plan) {
       if (balanceOn(todayISO()) === null || (state.paySchedules || []).length) return '';
-      return '<div class="card pay-strip pay-empty"><span><b>Budget by paycheck</b><small>Bills matched to the paycheck that covers them</small></span><button type="button" class="btn btn-sm" data-act="add-pay">+ Pay schedule</button></div>';
+      return '<div class="card pay-strip pay-empty"><span><b>Budget by paycheck</b><small>See what\'s left to spend until each payday</small></span><button type="button" class="btn btn-sm" data-act="add-pay">Add your paycheck</button></div>';
     }
     const c = plan.cur;
     const nextUp = plan.periods.filter(p => !p.current).slice(0, 3);
-    return '<div class="card pay-strip"><a class="ps-now" href="#budget/paychecks"><span class="stat-label">Free until ' + esc(weekday(c.next.date)) + ' ' + esc(shortDate(c.next.date)) + '</span>' +
-      '<b class="stat-value' + (c.free < 0 ? ' neg' : '') + '">' + (c.bal === null ? '—' : money0(c.free)) + '</b>' +
-      '<small class="stat-sub">' + (c.bal === null ? 'Enter your balance' : money0(plan.perDay) + '/day · ' + plural(c.days, 'day') + (c.billsTotal ? ' · ' + money0(c.billsTotal) + ' bills' : '')) + '</small></a>' +
-      '<ol class="ps-next">' + nextUp.map(p => '<li><span class="ps-d">' + esc(shortDate(p.start)) + '</span><span class="ps-bar"><i class="pp-bills" style="width:' + Math.min(100, p.billsTotal / Math.max(1, p.have) * 100).toFixed(1) + '%"></i><i class="pp-save" style="width:' + Math.min(100, p.save / Math.max(1, p.have) * 100).toFixed(1) + '%"></i><i class="pp-hold" style="width:' + Math.min(100, p.hold / Math.max(1, p.have) * 100).toFixed(1) + '%"></i></span><b class="' + (p.free < 0 ? 'neg' : '') + '" title="Free after bills' + (p.save ? ' and saving' : '') + '">' + money0(p.free) + '</b></li>').join('') + '</ol></div>';
+    return '<div class="card pay-strip"><a class="ps-now" href="#budget/paychecks"><span class="stat-label">Left until payday, ' + esc(weekday(c.next.date)) + ' ' + esc(shortDate(c.next.date)) + '</span>' +
+      '<b class="stat-value' + (c.free < 0 ? ' neg' : '') + '">' + (c.bal === null ? '—' : (c.free < 0 ? '−' : '') + money0(Math.abs(c.free))) + '</b>' +
+      '<small class="stat-sub">' + (c.bal === null ? 'Enter your balance' : c.free > 0 ? money0(plan.perDay) + ' a day for ' + plural(c.days, 'day') : 'Short before payday') + '</small></a>' +
+      '<div class="ps-side"><span class="ps-cap">Next paychecks, left after bills</span><ol class="ps-next">' + nextUp.map(p => '<li><span class="ps-d">' + esc(shortDate(p.start)) + '</span><span class="ps-bar"><i class="pp-bills" style="width:' + Math.min(100, p.billsTotal / Math.max(1, p.have) * 100).toFixed(1) + '%"></i><i class="pp-save" style="width:' + Math.min(100, p.save / Math.max(1, p.have) * 100).toFixed(1) + '%"></i><i class="pp-hold" style="width:' + Math.min(100, p.hold / Math.max(1, p.have) * 100).toFixed(1) + '%"></i></span><b class="' + (p.free < 0 ? 'neg' : '') + '">' + money0(p.free) + '</b></li>').join('') + '</ol></div></div>';
   }
 
   function payForm(s) {
