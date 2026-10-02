@@ -782,3 +782,55 @@ dialog.guide { width: min(560px, calc(100% - 32px)); }
 .strain-banner .sb-icon { display: none; }
 .calc-toggle { padding: 9px; }
 .calc-toggle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Bank CSV import */
+.csv-btn { margin-left: auto; }
+.csv-hint { margin: 0 0 10px; }
+.csv-sum { margin: 0 0 10px; font-size: 0.9rem; color: var(--muted); }
+.csv-sum b { color: var(--text); font-variant-numeric: tabular-nums; }
+.csv-map { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+.csv-map summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.csv-map[open] summary { margin-bottom: 10px; }
+.csv-rows { list-style: none; margin: 0; padding: 0; }
+.csv-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 130px); align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+.csv-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--brand); }
+.csv-row.off .csv-main, .csv-row.off .csv-amt { opacity: 0.5; }
+.csv-main { display: flex; flex-direction: column; min-width: 0; }
+.csv-main b { font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csv-main small { font-size: 0.75rem; color: var(--muted); }
+.csv-amt { font-weight: 600; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+select.csv-cat { padding: 6px 8px; font-size: 0.82rem; }
+@media (max-width: 760px) {
+  .csv-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .csv-row .csv-cat { grid-column: 2 / -1; }
+  .csv-btn { margin-left: 0; width: 100%; justify-content: center; }
+}
+
+/* Yearly costs */
+.funds li { padding-bottom: 10px; }
+.fund-bar { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+.fund-bar .meter-track { flex: 1; min-width: 60px; }
+.fund-bar small { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fund-note { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--muted); }
+.fund-note b { color: var(--text); font-variant-numeric: tabular-nums; }
+.fund-note:hover { text-decoration: none; color: var(--text); }
+
+/* Leftover sweep */
+.sweep-banner { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: color-mix(in srgb, var(--pos) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--pos) 30%, transparent); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 16px; }
+.sweep-banner > div:nth-child(2) { flex: 1; min-width: 200px; }
+.sweep-banner p { margin: 2px 0 0; font-size: 0.85rem; color: var(--muted); }
+.sweep-banner .sb-icon { background: var(--pos); color: var(--surface); }
+.sweep-banner .row-actions { align-items: center; }
+.sweep-banner select { width: auto; max-width: 180px; padding: 6px 10px; font-size: 0.85rem; }
+.sweep-amt { width: 110px; }
+.sweep-amt input { padding: 6px 10px; font-size: 0.85rem; }
+@media (max-width: 760px) {
+  .sweep-banner .sb-icon { display: none; }
+  .sweep-banner .row-actions { width: 100%; }
+  .sweep-banner select { flex: 1 1 140px; max-width: none; min-width: 0; }
+  .sweep-banner .btn { flex: 1 1 calc(50% - 4px); justify-content: center; }
+}
+/* Same quiet treatment as the strain banner and one level of boxes. */
+.sweep-banner { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--pos); }
+.sweep-banner .sb-icon { display: none; }
+.csv-map { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding: 10px 0 0; }
