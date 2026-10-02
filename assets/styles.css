@@ -1030,3 +1030,12 @@ details.pp .pp-bills-list { margin-top: 10px; padding-top: 4px; border-top: 1px 
 .csv-fill-bank input { flex: none; width: 18px; height: 18px; accent-color: var(--brand); margin: 0; align-self: center; }
 .csv-fill .row-actions { gap: 8px; }
 @media (max-width: 480px) { .csv-fill .btn { flex: 1 1 calc(50% - 4px); justify-content: center; } .csv-fill .row-actions { width: 100%; } }
+
+/* Paychecks: next month's bills that land before its first payday */
+.pp-spend { background: var(--border); }
+.pp-ahead { padding: 0 0 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.pp-ahead-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.pp-ahead-head span { display: flex; flex-direction: column; min-width: 0; }
+.pp-ahead-head small { font-size: 0.8rem; color: var(--muted); }
+.pp-ahead-total { font-size: 1.15rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pp-ahead .pp-math dt small { font-size: 0.8rem; }
