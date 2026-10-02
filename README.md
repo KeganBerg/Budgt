@@ -21,3 +21,7 @@ It's plain HTML, CSS and JavaScript (`index.html`, `assets/`). Open `index.html`
 1. Go to **Settings → Pages** in this repository.
 2. Set **Source** to "Deploy from a branch", pick the branch that holds `index.html` and the `/ (root)` folder, then save.
 3. After a minute the app is live at `https://keganberg.github.io/Budgt/`.
+
+## Credits
+
+Icons are from [Lucide](https://lucide.dev) (ISC licence), copied inline. Last month's chart line colour was checked for contrast with [Adobe Leonardo](https://leonardocolor.io).
