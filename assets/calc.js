@@ -129,7 +129,7 @@
   function renderInsert() {
     if (target && !document.body.contains(target)) target = null;
     const r = current();
-    if (!target) { insertBtn.disabled = true; insertBtn.textContent = 'Click a money field to insert'; return; }
+    if (!target) { insertBtn.disabled = true; insertBtn.textContent = (matchMedia('(hover: none)').matches ? 'Tap' : 'Click') + ' a money field to insert'; return; }
     const ok = !r.error && r.value != null;
     insertBtn.disabled = !ok;
     insertBtn.textContent = ok ? 'Insert ' + money.format(r.value) + ' into ' + fieldLabel(target) : 'Insert into ' + fieldLabel(target);
