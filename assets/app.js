@@ -433,6 +433,104 @@
     $('#monthLabelShort').textContent = monthName(viewMonth, { month: 'short', year: 'numeric' });
     $('.month-picker').style.visibility = (v === 'goals' || v === 'liabilities') ? 'hidden' : '';
     ({ dashboard: renderDashboard, transactions: renderTransactions, budget: renderBudget, liabilities: renderLiabilities, goals: renderGoals })[v]();
+    animateChanges($('#view-' + v), v);
+  }
+
+  // ---------- motion ----------
+  // After a view re-renders, headline numbers count and bars slide from what was on screen before to their new
+  // value, so changing month or marking a bill paid shows what moved. Uses the browser's Web Animations API (what
+  // Motion's animate() is built on), so nothing extra loads. Everything is skipped under reduced motion.
+  const seen = new Map();            // view|card|kind|index -> value last shown
+  let lastChartMonth = '';
+  const DUR = 450, EASE = 'cubic-bezier(.2,.7,.2,1)';
+  const NUM_SEL = '.stat-value, .chart-stats b, .head-stat b, .meter-top b, .ss-mile-top b, .gc-amt b';
+  const BAR_SEL = 'i[style*="width:"], i[style*="height:"]';
+
+  function animateChanges(root, view) {
+    const ok = !matchMedia('(prefers-reduced-motion: reduce)').matches && 'animate' in Element.prototype;
+    const first = !seen.has(view);
+    seen.set(view, true);
+    const cards = [...root.querySelectorAll('.card')];
+    const keyFor = (el, kind, n) => {
+      const card = el.closest('.card');
+      const name = card ? (card.querySelector('.card-head h3, .stat-label, h3') || {}).textContent || cards.indexOf(card) : '';
+      return view + '|' + name + '|' + kind + '|' + n;
+    };
+    const each = (sel, kind, fn) => {
+      const counts = new Map();
+      root.querySelectorAll(sel).forEach(el => {
+        const card = el.closest('.card'), n = counts.get(card) || 0;
+        counts.set(card, n + 1);
+        fn(el, keyFor(el, kind, n));
+      });
+    };
+
+    each(NUM_SEL, 'num', (el, key) => {
+      const node = [...el.childNodes].find(c => c.nodeType === 3 && /\d/.test(c.data));
+      const m = node && readMoney(node.data);
+      if (!m) { seen.delete(key); return; }
+      const was = seen.get(key);
+      seen.set(key, { v: m.v, pre: m.pre, post: m.post });
+      // Only count when just the amount changed, not the sign or wording around it.
+      if (ok && was && was.v !== m.v && was.pre === m.pre && was.post === m.post) countTo(node, m, was.v);
+    });
+
+    each(BAR_SEL, 'bar', (el, key) => {
+      const prop = /(^|;)\s*width:/.test(el.getAttribute('style')) ? 'width' : 'height';
+      const to = parseFloat(el.style[prop]) || 0;
+      const from = seen.has(key) ? seen.get(key) : (first ? 0 : to);
+      seen.set(key, to);
+      if (ok && Math.abs(from - to) > 0.2) el.animate([{ [prop]: from + '%' }, { [prop]: to + '%' }], { duration: DUR, easing: EASE });
+    });
+
+    // Six-month income and spending bars grow from their old height.
+    each('.chart rect[class^="bar-"]', 'col', (el, key) => {
+      const to = el.height.baseVal.value, from = seen.has(key) ? seen.get(key) : (first ? 0 : to);
+      seen.set(key, to);
+      if (ok && to > 0 && Math.abs(from - to) > 0.5) el.animate([{ transform: 'scaleY(' + (from / to) + ')' }, { transform: 'none' }], { duration: DUR, easing: EASE });
+    });
+
+    each('.ring-fg', 'ring', (el, key) => {
+      const to = el.getAttribute('stroke-dasharray'), from = seen.get(key) || (first ? '0 ' + to.split(' ')[1] : to);
+      seen.set(key, to);
+      if (ok && from !== to) el.animate([{ strokeDasharray: from }, { strokeDasharray: to }], { duration: DUR, easing: EASE });
+    });
+
+    // The spending chart draws in left to right when it shows a different month.
+    if (view === 'dashboard') {
+      const chart = root.querySelector('.chart-fill svg');
+      if (chart && ok && lastChartMonth !== viewMonth) {
+        chart.querySelectorAll('.line-spend, .line-income, .line-proj').forEach(p =>
+          p.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 600, easing: EASE }));
+        // The shaded gap and the labels fade in as the lines finish (the gap keeps its own clip path, so no wipe).
+        chart.querySelectorAll('.gap-pos, .gap-neg, .line-dot, .proj-label, .net-label').forEach(p =>
+          p.animate([{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.6 }], { duration: 750 }));
+      }
+      if (chart) lastChartMonth = viewMonth;
+    }
+  }
+
+  // Find the money amount in a label like "$1,240 over" so it can be counted, using the app's own formatters.
+  function readMoney(text) {
+    const run = text.match(/\d[\d.,\s  ']*/);
+    if (!run) return null;
+    const digits = Number(run[0].replace(/\D/g, ''));
+    for (const [f, v] of [[money, digits / 100], [money0, digits]]) {
+      const s = f(v), i = text.indexOf(s);
+      if (i >= 0) return { v, f, pre: text.slice(0, i), post: text.slice(i + s.length), text };
+    }
+    return null;
+  }
+
+  function countTo(node, m, from) {
+    const t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / DUR), e = 1 - Math.pow(1 - k, 3);
+      node.data = k < 1 ? m.pre + m.f(from + (m.v - from) * e) + m.post : m.text;
+      if (k < 1 && node.isConnected) requestAnimationFrame(step);
+    };
+    node.data = m.pre + m.f(from) + m.post;
+    requestAnimationFrame(step);
   }
 
   function emptyCard(title, text, actions) {
@@ -912,7 +1010,7 @@
       return '<li>' + donut(pct, over ? 'var(--neg)' : catColor(c.id)) + '<div class="br-name"><input class="inline" data-cat-name="' + c.id + '" value="' + esc(c.name) + '" aria-label="Category name"><small class="' + (over ? 'neg' : 'muted') + '">' + (s ? '<button type="button" class="spent-link" data-act="view-cat" data-id="' + c.id + '" title="See these transactions">' + money(s) + ' spent</button>' : money(s) + ' spent') + (c.budget ? ' · ' + (over ? money(s - c.budget) + ' over' : money(c.budget - s) + ' left') : '') + '</small></div>' +
         '<button type="button" class="tag tag-btn' + (isEssential(c) ? '' : ' tag-flex') + '" data-act="toggle-essential" data-id="' + c.id + '" title="Essentials are left out of cut-back tips">' + (isEssential(c) ? 'Essential' : 'Flexible') + '</button>' +
         '<label class="money-input"><span>$</span><input inputmode="decimal" data-cat-budget="' + c.id + '" value="' + (c.budget || '') + '" placeholder="0" aria-label="Monthly budget for ' + esc(c.name) + '"></label>' +
-        '<button class="icon-btn" data-act="del-cat" data-id="' + c.id + '" aria-label="Delete ' + esc(c.name) + '">✕</button></li>';
+        '<button class="icon-btn" data-act="del-cat" data-id="' + c.id + '" aria-label="Delete ' + esc(c.name) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></li>';
     }).join('');
     html += '</ul></div>';
     el.innerHTML = html;
@@ -1456,7 +1554,7 @@
   }
 
   function itemRow(it) {
-    return '<li class="item-row"><input class="it-name" placeholder="Item" value="' + esc(it ? it.name : '') + '" aria-label="Item name"><input class="it-amt" inputmode="decimal" placeholder="0.00" value="' + (it ? it.amount : '') + '" aria-label="Item amount"><button type="button" class="icon-btn" data-rm-item aria-label="Remove item">✕</button></li>';
+    return '<li class="item-row"><input class="it-name" placeholder="Item" value="' + esc(it ? it.name : '') + '" aria-label="Item name"><input class="it-amt" inputmode="decimal" placeholder="0.00" value="' + (it ? it.amount : '') + '" aria-label="Item amount"><button type="button" class="icon-btn" data-rm-item aria-label="Remove item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></li>';
   }
 
   function txnForm(t) {
