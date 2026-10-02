@@ -2540,6 +2540,16 @@
     return out.sort((x, y) => x.date.localeCompare(y.date));
   }
 
+  // When the money before payday can't cover every bill, pay in the order the CFPB's "Prioritizing bills" tool
+  // gives: what protects your home, your job and your insurance first (rent, utilities, the car, childcare,
+  // insurance, court-ordered payments), then debt minimums, then everything else.
+  const PROTECT_RE = /rent|mortgage|hous|home|util|electric|power|water|sewer|gas\b|heat|internet|phone|insur|child|daycare|support|court|fine|car\b|auto|vehicle|transport|medical|health|pharm/i;
+  function billTier(l) {
+    const text = (l.name || '') + ' ' + catById(l.categoryId).name;
+    return PROTECT_RE.test(text) ? 1 : l.type === 'debt' ? 2 : 3;
+  }
+  const TIER_LABEL = { 1: 'Essential', 2: 'Minimum', 3: 'Can wait' };
+
   // The budget, one paycheck at a time. The period you're in starts from today's balance (plus any payday
   // that hasn't been logged yet) and pays the bills due before the next payday. Each later paycheck pays the
   // bills due before the one after it, then puts its share of goals and yearly costs aside. A paycheck that
@@ -2573,6 +2583,12 @@
       p.have = round2(have);
     }
     cur.days = daysApart(today, cur.end) + 1;
+    // Short before payday: cover bills in priority order and flag the ones the money doesn't reach.
+    if (bal !== null && cur.free < 0) {
+      let left = round2(bal + cur.pay);
+      cur.bills.sort((x, y) => billTier(x.l) - billTier(y.l) || x.date.localeCompare(y.date)).forEach(x => { x.tier = billTier(x.l); x.short = left < x.amount; if (!x.short) left = round2(left - x.amount); });
+      cur.short = true;
+    }
     return { cur, periods: periods.slice(0, count || 7), perDay: cur.days ? Math.max(0, cur.free) / cur.days : 0 };
   }
 
@@ -2592,13 +2608,14 @@
       seg('pp-bills', p.billsTotal, 'Bills') + seg('pp-save', p.save, 'Save') + seg('pp-hold', p.hold, 'Held for ' + (p.holdFor ? shortDate(p.holdFor) : 'later')) + '</div>';
     const facts = [['Bills', p.billsTotal, '']];
     if (p.save) facts.push(['Save', p.save, '']);
-    if (p.hold) facts.push(['Hold', p.hold, 'For the bills due after ' + shortDate(p.holdFor)]);
+    if (p.hold) facts.push(['Hold', p.hold, 'For the bills due after ' + shortDate(p.holdFor) + '. Asking those companies to move the due date to just after a payday frees this up.']);
     facts.push(['Free', p.free, p.free < 0 ? 'neg' : 'pos']);
     html += '<div class="pp-facts">' + facts.map(([l, v, t]) => '<span' + (l === 'Hold' ? ' title="' + esc(t) + '"' : '') + '>' + l + ' <b class="' + (l === 'Free' ? t : '') + '">' + (v < 0 ? '−' : '') + money0(Math.abs(v)) + '</b></span>').join('') + '</div>';
+    if (full && p.short) html += '<p class="pp-tip neg">' + money0(-p.free) + ' short. Essentials first, then debt minimums. Ask to move the rest past payday.</p>';
     if (full && (p.bills.length || (p.pending || []).length)) {
       const today = todayISO();
       html += '<ul class="pp-bills-list">' + (p.pending || []).map(x => '<li><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.s.name) + '</span><b class="pos">+' + money0(x.amount) + '</b><button type="button" class="chip" data-act="log-pay" data-id="' + x.s.id + '" data-date="' + x.date + '">Log</button></li>').join('') +
-        p.bills.map(x => '<li' + (x.date < today ? ' class="late"' : '') + '><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.l.name) + '</span><b>' + money0(x.amount) + '</b>' +
+        p.bills.map(x => '<li' + (x.date < today ? ' class="late"' : '') + '><span class="pp-d">' + esc(shortDate(x.date)) + '</span><span class="pp-n">' + esc(x.l.name) + (x.tier ? '<small class="' + (x.short ? 'neg' : 'muted') + '">' + (x.short ? 'Short · ' : '') + TIER_LABEL[x.tier] + '</small>' : '') + '</span><b>' + money0(x.amount) + '</b>' +
           (p.current ? '<button type="button" class="chip" data-act="pay" data-id="' + x.l.id + '" data-month="' + x.month + '">Paid</button>' : '<span></span>') + '</li>').join('') + '</ul>';
     }
     return html + '</li>';
@@ -2615,6 +2632,14 @@
     }).join('') + '</ul></div>';
   }
 
+  // A starter emergency buffer comes first: Vanguard (2025) links $2,000 of savings to 21% higher financial well-being.
+  const BUFFER_RE = /emergenc|buffer|rainy/i;
+  function bufferPrompt() {
+    if (state.goals.some(g => BUFFER_RE.test(g.name))) return '';
+    const per = Math.max(5, r5(2000 / 6 * 12 / Math.max(1, (state.paySchedules || []).reduce((a, s) => a + payEvery(s)[2], 0))));
+    return '<div class="pp-buffer"><span><b>$2,000 buffer</b><small>About ' + money0(per) + ' a paycheck for 6 months</small></span><button type="button" class="btn btn-sm" data-act="add-buffer">Start it</button></div>';
+  }
+
   function renderPaychecks(el) {
     const plan = payPlan(7);
     let html = '';
@@ -2627,9 +2652,9 @@
     }
     html += payScheduleList();
     if (plan) {
-      html += '<div class="card"><div class="card-head"><h3>By paycheck' + info('Bills are paid from the last paycheck before they\'re due. Save is each paycheck\'s share of your goals and yearly costs. Hold is kept back for a later paycheck that can\'t cover its own bills.') + '</h3>' +
+      html += '<div class="card"><div class="card-head"><h3>By paycheck' + info('Bills are paid from the last paycheck before they\'re due. Save is each paycheck\'s share of your goals and yearly costs. Hold is kept back for a later paycheck that can\'t cover its own bills. If money runs short, essentials (housing, utilities, getting to work, insurance) come before debt minimums, which come before everything else.') + '</h3>' +
         '<div class="legend"><span class="lg lg-bills">Bills</span><span class="lg lg-save">Save</span><span class="lg lg-hold">Hold</span><span class="lg lg-free">Free</span></div></div>' +
-        '<ol class="pay-periods">' + plan.periods.map(p => periodBlock(p, plan, true)).join('') + '</ol></div>';
+        bufferPrompt() + '<ol class="pay-periods">' + plan.periods.map(p => periodBlock(p, plan, true)).join('') + '</ol></div>';
     } else if ((state.paySchedules || []).length) {
       html += '<div class="card"><p class="muted">No paydays in the next few months.</p></div>';
     }
@@ -2754,6 +2779,7 @@
       case 'undo-sweep': undoSweep(); break;
       case 'catch-up': e.preventDefault(); catchUpForm(); break;
       case 'add-pay': payForm(); break;
+      case 'add-buffer': state.goals.push({ id: uid(), name: 'Emergency fund', target: 2000, saved: 0, date: '', monthly: round2(2000 / 6) }); save(); break;
       case 'edit-pay': payForm(state.paySchedules.find(s => s.id === id)); break;
       case 'log-pay': {
         const s = state.paySchedules.find(x => x.id === id);
