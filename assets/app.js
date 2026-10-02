@@ -460,10 +460,10 @@
     const left = budget - spent;
 
     let html = '<div class="stats">';
-    html += statCard('Left to spend', budget ? money(left) : '—', budget ? (left >= 0 ? 'of ' + money0(budget) + ' budget' : money0(-left) + ' over budget') : '<a href="#budget">Set a budget</a>', left < 0 ? 'neg' : '');
-    html += statCard('Spent', money(spent), (diff <= 0 ? money0(-diff) + ' less' : money0(diff) + ' more') + ' than last month', diff > 0 ? 'neg' : 'pos');
-    html += statCard('Income', money(income), (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' net', income - spent >= 0 ? 'pos' : 'neg');
-    html += statCard('Total debt', money(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
+    html += statCard('Left to spend', budget ? money0(left) : '—', budget ? (left >= 0 ? 'of ' + money0(budget) + ' budget' : money0(-left) + ' over budget') : '<a href="#budget">Set a budget</a>', left < 0 ? 'neg' : '');
+    html += statCard('Spent', money0(spent), (diff <= 0 ? money0(-diff) + ' less' : money0(diff) + ' more') + ' than last month', diff > 0 ? 'neg' : 'pos');
+    html += statCard('Income', money0(income), (income - spent >= 0 ? '+' : '−') + money0(Math.abs(income - spent)) + ' net', income - spent >= 0 ? 'pos' : 'neg');
+    html += statCard('Total debt', money0(debt), state.liabilities.filter(l => l.type === 'debt').length + ' accounts', '');
     html += '</div>';
     html += sweepBanner();
     html += strainBanner();
@@ -785,27 +785,20 @@
     for (let i = 5; i >= 0; i--) { const m = shiftMonth(k, -i), l = txnsIn(m); months.push({ m, has: l.length > 0, inc: sumBy(l, 'income'), net: sumBy(l, 'income') - sumBy(l, 'expense') }); }
     const used = months.filter(x => x.has);
     if (!used.length) return '';
-    const max = Math.max(1, ...used.map(x => Math.abs(x.net)));
     const incSum = used.reduce((a, x) => a + x.inc, 0), netSum = used.reduce((a, x) => a + x.net, 0);
     const rate = incSum > 0 ? netSum / incSum : 0;
     const cur = months[5];
-    const bars = months.map(x => {
-      const h = x.has ? Math.max(3, Math.abs(x.net) / max * 100) : 0;
-      return '<div class="ss-col" title="' + esc(monthName(x.m, { month: 'long' })) + ': ' + (x.has ? (x.net >= 0 ? 'saved ' : 'overspent ') + money0(Math.abs(x.net)) : 'no data') + '"><div class="ss-half up">' + (x.has && x.net >= 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><div class="ss-half down">' + (x.has && x.net < 0 ? '<i style="height:' + h.toFixed(0) + '%"></i>' : '') + '</div><span>' + esc(monthName(x.m, { month: 'short' })) + '</span></div>';
-    }).join('');
     // Safety-net milestones (Vanguard): a $2,000 starter cushion, then 3 months of essential costs.
     const saved = state.goals.reduce((a, g) => a + g.saved, 0);
     const { avg } = catAverages();
     const needs = state.categories.filter(isEssential).reduce((a, c) => a + (avg[c.id] || c.budget || 0), 0);
     const cushion = Math.max(2000, Math.round(needs * 3 / 50) * 50);
     const target = saved < 2000 ? 2000 : cushion;
-    const label = saved < 2000 ? '$2,000 starter cushion' : '3 months of essentials';
+    const label = saved < 2000 ? '$2,000 starter cushion' : '3-month cushion';
     const done = saved >= cushion;
-    const anyNeg = used.some(x => x.net < 0);
-    return '<div class="savings-snap' + (anyNeg ? '' : ' no-neg') + '"><div class="ss-stats"><div><span>' + (cur.has ? 'Net this month' : 'Avg net per month') + '</span><b class="' + ((cur.has ? cur.net : netSum / used.length) >= 0 ? 'pos' : 'neg') + '">' + ((cur.has ? cur.net : netSum / used.length) < 0 ? '−' : '+') + money0(Math.abs(cur.has ? cur.net : netSum / used.length)) + '</b></div>' +
+    return '<div class="savings-snap"><div class="ss-stats"><div><span>' + (cur.has ? 'Net this month' : 'Avg net per month') + '</span><b class="' + ((cur.has ? cur.net : netSum / used.length) >= 0 ? 'pos' : 'neg') + '">' + ((cur.has ? cur.net : netSum / used.length) < 0 ? '−' : '+') + money0(Math.abs(cur.has ? cur.net : netSum / used.length)) + '</b></div>' +
       '<div><span>Savings rate</span><b class="' + (rate >= 0 ? '' : 'neg') + '">' + Math.round(rate * 100) + '%</b><small>of income, last ' + used.length + ' mo</small></div></div>' +
-      '<div class="ss-chart" aria-hidden="true">' + bars + '</div>' +
-      '<div class="ss-mile"><div class="ss-mile-top"><span>' + (done ? '3-month safety net reached' : 'Next: ' + label) + '</span><b>' + money0(Math.min(saved, target)) + ' / ' + money0(target) + '</b></div><div class="ss-track"><i style="width:' + Math.min(100, saved / target * 100).toFixed(1) + '%"></i></div>' +
+      '<div class="ss-mile"><div class="ss-mile-top"><span>' + (done ? '3-month cushion reached' : label) + '</span><b>' + money0(Math.min(saved, target)) + ' / ' + money0(target) + '</b></div><div class="ss-track"><i style="width:' + Math.min(100, saved / target * 100).toFixed(1) + '%"></i></div>' +
       (done ? '' : '<small class="muted">' + money0(target - saved) + ' to go' + (netSum / used.length > 0 ? ' · about ' + Math.max(1, Math.ceil((target - saved) / (netSum / used.length))) + ' mo' : '') + '</small>') + '</div></div>';
   }
 
@@ -901,9 +894,9 @@
     const budget = totalBudget();
     const spentTotal = sumBy(txnsIn(viewMonth), 'expense');
     const income = sumBy(txnsIn(viewMonth), 'income');
-    let html = '<div class="stats three">' + statCard('Monthly budget', money(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
-      statCard('Spent', money(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
-      statCard('Remaining', money(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
+    let html = '<div class="stats three">' + statCard('Monthly budget', money0(budget), income ? money0(income) + ' income this month' : 'Across ' + state.categories.filter(c => c.budget > 0).length + ' categories', '') +
+      statCard('Spent', money0(spentTotal), budget ? Math.round((spentTotal / budget) * 100) + '% of budget' : '', spentTotal > budget && budget ? 'neg' : '') +
+      statCard('Remaining', money0(budget - spentTotal), budget - spentTotal < 0 ? 'Over budget' : 'Left for ' + monthName(viewMonth, { month: 'long' }), budget - spentTotal < 0 ? 'neg' : 'pos') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Categories' + info('Type a monthly limit for each category. Tap Essential or Flexible to choose which ones get cut-back tips.') + '</h3><button class="btn btn-ghost btn-sm" data-act="add-cat">+ Category</button></div><ul class="budget-rows">';
     html += state.categories.map(c => {
       const s = spent[c.id] || 0;
@@ -936,8 +929,8 @@
     const monthly = dueIn(monthKey(new Date())).reduce((a, l) => a + (l.payment || 0), 0);
     const debtTotal = debts.reduce((a, l) => a + (l.balance || 0), 0);
     const setAside = fundsMonthlyNeed();
-    let html = '<div class="stats three">' + statCard('Monthly bills and payments', money(monthly), setAside ? '+ ' + money0(setAside) + ' set aside' : state.liabilities.length + ' total', '') +
-      statCard('Total debt', money(debtTotal), debts.length + ' accounts', '') +
+    let html = '<div class="stats three">' + statCard('Monthly bills and payments', money0(monthly), setAside ? '+ ' + money0(setAside) + ' set aside' : state.liabilities.length + ' total', '') +
+      statCard('Total debt', money0(debtTotal), debts.length + ' accounts', '') +
       statCard('Debt-free by', debtFreeDate(debts), '', '', 'If you keep paying just the minimums') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Debts</h3><button class="btn btn-ghost btn-sm" data-act="add-liab" data-type="debt">+ Debt</button></div>';
     html += debts.length ? '<ul class="liabs">' + debts.map(l => {
@@ -962,7 +955,7 @@
   function renderGoals() {
     const el = $('#view-goals');
     const avg = avgMonthlySavings();
-    let html = '<div class="stats three">' + statCard('Saved toward goals', money(state.goals.reduce((a, g) => a + g.saved, 0)), 'of ' + money0(state.goals.reduce((a, g) => a + g.target, 0)) + ' total', '') +
+    let html = '<div class="stats three">' + statCard('Saved toward goals', money0(state.goals.reduce((a, g) => a + g.saved, 0)), 'of ' + money0(state.goals.reduce((a, g) => a + g.target, 0)) + ' total', '') +
       statCard('Your savings rate', (avg < 0 ? '−' : '') + money0(Math.abs(avg)) + '/mo', '', avg >= 0 ? 'pos' : 'neg', 'Average income minus spending over your recent months') +
       statCard('Goals', String(state.goals.length), state.goals.filter(g => g.saved >= g.target).length + ' reached', '') + '</div>';
     html += '<div class="card"><div class="card-head"><h3>Your goals</h3><button class="btn btn-ghost btn-sm" data-act="add-goal">+ Goal</button></div>';
@@ -1246,10 +1239,18 @@
   const STOP = new Set('the and for with from this that was were got some new day week month bought paid pay buy for, just also then into our your you are not but all one two had has have its his her him she they them per via at on in of to a an'.split(' '));
   function words(s) { return (s || '').toLowerCase().match(/[a-z][a-z'&-]{2,}/g) || []; }
 
+  // Bill and debt payments logged by hand (no link to a bill) are obligations, not habits.
+  const PAYMENT_RE = /\b(debt|loan|credit ?card|card payment|payment|minimum|interest|mortgage|rent|bill|installment|instalment|transfer|repay\w*|payoff|pay ?off)\b/i;
+  function looksLikePayment(t) {
+    const names = state.liabilities.map(l => (l.name || '').trim().toLowerCase()).filter(Boolean);
+    const m = (t.merchant || '').trim().toLowerCase();
+    return (m && names.includes(m)) || PAYMENT_RE.test(t.merchant || '') || PAYMENT_RE.test(t.note || '');
+  }
+
   function findPatterns() {
     const cur = monthKey(new Date());
     const start = shiftMonth(cur, -2) + '-01';
-    const txns = state.transactions.filter(t => t.type === 'expense' && t.date >= start && !t.liabilityId && !isEssential(catById(t.categoryId)));
+    const txns = state.transactions.filter(t => t.type === 'expense' && t.date >= start && !t.liabilityId && !isEssential(catById(t.categoryId)) && !looksLikePayment(t));
     if (!txns.length) return [];
     const monthsSpan = Math.max(1, new Set(state.transactions.filter(t => t.date >= start).map(t => t.date.slice(0, 7))).size);
     const groups = new Map();
@@ -1290,24 +1291,32 @@
     return picked.slice(0, 8);
   }
 
+  // How a pattern is named inside a sentence. Note words are common nouns ("vape"), so they go lowercase
+  // mid-sentence; store names and receipt items keep the case they were typed in.
+  function patternName(g, atStart) {
+    const n = g.kind === 'note' ? g.label.toLowerCase() : g.label;
+    return atStart ? n.charAt(0).toUpperCase() + n.slice(1) : n;
+  }
+  function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
   function patternMessage(g) {
     const I = monthlyIncome();
-    const where = g.kind === 'merchant' ? '' : g.topMerchant ? ' at ' + g.topMerchant : g.stores.length > 1 ? ' across ' + storeList(g.stores) : '';
-    const kindText = g.kind === 'note' ? 'from your notes' : g.kind === 'item' ? 'from receipt items' : 'by store';
-    let text = g.label + where + ' costs about ' + money0(g.monthly) + ' a month (' + Math.round(g.perMonth) + ' purchase' + (Math.round(g.perMonth) === 1 ? '' : 's') + ' a month)';
-    if (I > 0) text += ', ' + (g.share * 100).toFixed(g.share < 0.1 ? 1 : 0) + '% of your income';
-    text += '. That\'s ' + money0(g.monthly * 12) + ' a year.';
+    const at = g.kind === 'merchant' ? 'at ' + g.label : 'on ' + patternName(g) + (g.topMerchant ? ' at ' + g.topMerchant : g.stores.length > 1 ? ' at ' + storeList(g.stores) : '');
+    const per = Math.max(1, Math.round(g.perMonth));
+    let text = 'You spend about ' + money0(g.monthly) + ' a month ' + at + ', over ' + plural(per, 'purchase') + ' a month.';
+    text += I > 0 ? ' That\'s ' + (g.share * 100).toFixed(g.share < 0.1 ? 1 : 0) + '% of your income, or ' + money0(g.monthly * 12) + ' a year.' : ' That\'s ' + money0(g.monthly * 12) + ' a year.';
     const goal = state.goals.find(x => x.saved < x.target);
     const rate = avgMonthlySavings();
-    let impact = '';
+    const half = g.monthly / 2;
+    let impact = 'Cutting this in half would free up ' + money0(half) + ' a month.';
     if (goal) {
       const rem = goal.target - goal.saved;
-      const half = g.monthly / 2;
       if (rate > 0) {
         const a = Math.ceil(rem / rate), b = Math.ceil(rem / (rate + half));
-        if (a - b >= 1) impact = 'Cutting it in half would reach your ' + goal.name + ' ' + (a - b) + ' month' + (a - b === 1 ? '' : 's') + ' sooner.';
-      } else impact = 'Cutting it in half would free up ' + money0(half) + ' a month toward your ' + goal.name + '.';
-    } else impact = 'Cutting it in half would free up ' + money0(g.monthly / 2) + ' a month.';
+        impact = a - b >= 1 ? 'Cutting this in half would get you to your ' + goal.name + ' goal ' + plural(a - b, 'month') + ' sooner.' : impact;
+      } else impact = 'Cutting this in half would free up ' + money0(half) + ' a month for your ' + goal.name + ' goal.';
+    }
+    const kindText = g.kind === 'note' ? 'matched by your notes' : g.kind === 'item' ? 'matched by receipt items' : 'at the same store';
     return { text, impact, kindText };
   }
 
@@ -1335,7 +1344,7 @@
       const where = patternWhere(g);
       return '<div class="pattern pattern-' + g.level + '"><div class="pt-head"><b>' + esc(g.label) + '</b>' + (where ? '<span class="muted small">' + esc(where) + '</span>' : '') + '<span class="tag ' + (g.level === 'high' ? 'tag-high' : 'tag-flex') + '">' + (g.level === 'high' ? 'High strain' : 'Moderate strain') + '</span><span class="pt-amt">' + money0(g.monthly) + '<small>/mo</small></span></div>' +
         patternFacts(g) +
-        '<p class="muted small" title="' + esc(m.text) + ' Found ' + esc(m.kindText) + ' in ' + g.txns.size + ' purchases.">' + esc(m.impact) + '</p>' +
+        '<p class="muted small" title="' + esc(m.text) + ' Based on ' + g.txns.size + ' purchases ' + esc(m.kindText) + '.">' + esc(m.impact) + '</p>' +
         '<button type="button" class="link-btn small-link" data-act="search-pattern" data-q="' + esc(g.kind === 'merchant' ? g.label : g.label.toLowerCase()) + '">See these purchases</button></div>';
     }).join('');
     const minor = pats.filter(p => p.level === 'low');
@@ -1349,16 +1358,24 @@
   }
 
   // Headline wording varies by habit and month, but stays put between page loads so it doesn't flicker.
+  // {x} is the name mid-sentence, {X} the name starting a sentence. Each line puts the name after a
+  // preposition or verb ("spending on snacks", "you keep going back to Target"), so it reads right for
+  // any noun, singular or plural, and never as a "habit" of a bill or debt.
   const STRAIN_LINES = {
-    medium: ['{x} is a habit that is adding up.', '{x} keeps showing up in your spending.', 'Those {x} runs are starting to add up.', '{x} has become a regular expense.', 'Small {x} purchases are stacking up.', 'Your {x} spending has turned into a pattern.'],
-    high: ['{x} is putting a lot of strain on your budget.', '{x} is one of your biggest money leaks.', '{x} is taking a big bite out of your income.', 'Your {x} habit is costing you a lot.', '{x} is weighing heavily on your budget.'],
+    medium: {
+      thing: ['Spending on {x} is adding up.', 'You keep buying {x}.', 'Spending on {x} has become a regular expense.', 'Small purchases of {x} are stacking up.'],
+      store: ['Your {x} purchases are adding up.', 'Spending at {x} has become a regular expense.', 'You keep going back to {x}.', 'Small purchases at {x} are stacking up.'],
+    },
+    high: {
+      thing: ['Spending on {x} is putting a strain on your budget.', 'Spending on {x} is taking a big bite out of your income.', 'You\'re spending a lot on {x}.', 'Spending on {x} is weighing heavily on your budget.'],
+      store: ['Spending at {x} is putting a strain on your budget.', 'Your {x} purchases are taking a big bite out of your income.', 'Spending at {x} is costing you a lot.', 'Spending at {x} is weighing heavily on your budget.'],
+    },
   };
   function strainHeadline(g) {
-    const lines = STRAIN_LINES[g.level === 'high' ? 'high' : 'medium'];
+    const lines = STRAIN_LINES[g.level === 'high' ? 'high' : 'medium'][g.kind === 'merchant' ? 'store' : 'thing'];
     let h = 0;
     for (const ch of g.key + monthKey(new Date())) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    const line = lines[h % lines.length];
-    return line.replace('{x}', line.startsWith('{x}') || g.kind === 'merchant' ? g.label : g.label.toLowerCase());
+    return lines[h % lines.length].replace('{x}', patternName(g)).replace('{X}', patternName(g, true));
   }
 
   function strainBanner() {
