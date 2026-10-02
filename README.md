@@ -7,6 +7,7 @@ A clean, minimalist budgeting app for saving and financial security. No subscrip
 - **Dashboard:** left to spend, spending this month vs last month, income vs spending over six months, budget by category, upcoming bills and your savings outlook.
 - **Transactions:** add expenses and income, and optionally itemize a receipt into its line items. Search covers merchants, notes and receipt items. **Import CSV** reads a bank export in the browser, guesses categories from your past entries, and skips rows you already have.
 - **Budget:** set a monthly limit per category and watch progress update as you spend.
+- **Paychecks:** enter each income source with how often it pays (weekly, every 2 weeks, twice a month or monthly) and the next payday. Starting from today's balance, each paycheck is matched to the bills due before the next one, takes its share of savings, and shows what's free to spend until the next payday. A paycheck that can't cover its bills holds money back from the one before it.
 - **Bills & debt:** track recurring bills and debts (balance, APR, payment, due day). Mark a bill paid to log it, and see a payoff date for each debt. **Yearly costs** (insurance, gifts, repairs) are split into a monthly amount to set aside.
 - **Goals:** set savings goals with an optional target date and monthly contribution, and see whether you're on track. At the start of each month the dashboard offers to move last month's leftover budget into a goal.
 
