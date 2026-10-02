@@ -1019,3 +1019,14 @@ details.pp .pp-bills-list { margin-top: 10px; padding-top: 4px; border-top: 1px 
   .pp-amt b { font-size: 1.1rem; }
   .pp-bills-list li { grid-template-columns: 48px minmax(0, 1fr) auto auto; }
 }
+
+/* CSV import: fill in what isn't in Budgt yet */
+.csv-fill { border: 1px solid var(--border); border-left: 3px solid var(--pos); border-radius: var(--radius); padding: 12px 14px; margin: 0 0 12px; }
+.csv-fill p { margin: 0 0 8px; }
+.csv-fill b { font-variant-numeric: tabular-nums; }
+.csv-fill-bal { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; color: var(--muted); }
+.csv-fill-bal b { color: var(--text); }
+.csv-fill-bank { display: flex; align-items: baseline; gap: 8px; font-size: 0.9rem; margin: 0 0 10px; }
+.csv-fill-bank input { flex: none; width: 18px; height: 18px; accent-color: var(--brand); margin: 0; align-self: center; }
+.csv-fill .row-actions { gap: 8px; }
+@media (max-width: 480px) { .csv-fill .btn { flex: 1 1 calc(50% - 4px); justify-content: center; } .csv-fill .row-actions { width: 100%; } }
