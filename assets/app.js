@@ -2014,12 +2014,19 @@
 
   // Bank descriptions are noisy ("POS PURCHASE STARBUCKS #1234   SEATTLE WA"); keep the part a person would write.
   function cleanMerchant(s) {
-    let t = String(s || '').trim().split(/\s{3,}/)[0];
-    t = t.replace(/\s+/g, ' ');
+    let t = String(s || '').trim();
+    // Chase ACH rows read "ORIG CO NAME:GUSTO ORIG ID:... CO ENTRY DESCR:PAYROLL ...": the company name is the merchant.
+    const orig = t.match(/orig co name:\s*(.+?)\s+(orig id|desc date|co entry)\b/i);
+    if (orig) t = orig[1];
+    t = t.split(/\s{3,}/)[0].replace(/\s+/g, ' ');
+    // Chase checking: "CARD PURCHASE WITH PIN 11/01 SHELL OIL ... CARD 4321", "Online Payment 1823 To Duke Energy 11/04", "Zelle payment to Jo JPM99b1".
+    t = t.replace(/^(recurring )?card purchase( with pin| return)?\s+(\d{1,2}\/\d{1,2}\s+)?/i, '').replace(/\s+card \d{4}$/i, '');
+    t = t.replace(/^online payment\s+\d*\s*to\s+/i, '').replace(/^zelle payment (to|from)\s+(.+?)(\s+[a-z]*\d[a-z\d]{5,})?$/i, (a, dir, who) => 'Zelle ' + dir.toLowerCase() + ' ' + who);
     t = t.replace(/^purchase authorized on \d{1,2}\/\d{1,2}\s*/i, '');
     for (let i = 0; i < 3; i++) t = t.replace(/^(pos|debit card|debit|dbt|checkcard|check card|card|visa|mc|purchase|recurring|preauthorized|pre-authorized|ach|electronic|withdrawal|point of sale|contactless)\b[\s:#*-]*/i, '');
     t = t.replace(/^(sq|tst|sp|pp|paypal|py|dd|ic|in)\s?\*\s*/i, '').replace(/^uber\s*\*\s*eats\b/i, 'Uber Eats');
     t = t.replace(/^(.{3,}?)\*.*$/, '$1').replace(/\s+(ppd|web|ccd|ach)\s+id:.*$/i, '').replace(/\s+\d{1,2}\/\d{1,2}(\/\d{2,4})?\b.*$/, '').replace(/\s*#?\s*\d{4,}.*$/, '').replace(/\s+#\d+\b/, '').replace(/\s+(x{2,}|\*{2,})\S*.*$/i, '').replace(/[\s*#-]+$/, '').trim();
+    t = t.replace(/^(\S{4,}) \1\b/i, '$1').replace(/^(.+\S) (AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)$/, '$1');
     if (t && !/[a-z]/.test(t)) t = t.toLowerCase().replace(/(^|[\s&/-])([a-z])/g, (a, b, c) => b + c.toUpperCase()).replace(/\b(Atm|Usa|Cvs|Bp|Ups|Usps)\b/g, w => w.toUpperCase());
     return (t || String(s || '').trim()).slice(0, 60);
   }
@@ -2052,7 +2059,7 @@
     [/shop|merchandise|retail|clothing/i, /shop/i],
     [/rent|mortgage|housing/i, /hous|rent|mortgage/i],
   ];
-  const TRANSFER_RE = /\b(transfer|xfer|thank you|autopay|auto pay|online pmt|epay|crd pmt|card payment|credit card|cc payment|to savings|from savings|from checking|to checking)\b/i;
+  const TRANSFER_RE = /\b(transfer|xfer|thank you|autopay|auto pay|online pmt|epay|crd pmt|card payment|credit card|cc payment|payment to chase card|credit crd|card ending in|to savings|from savings|from checking|to checking)\b/i;
 
   // Guess in order: what you picked for this exact merchant before, known merchant names and words in the
   // description, what you picked for a similar name, the category your bank put on it, then Other.
@@ -2118,11 +2125,12 @@
     }
     const cat = h >= 0 ? find(/categor|kategorie|cat[ée]gorie/i) : -1;
     const bal = h >= 0 ? find(/balance|saldo|solde|kontostand/i) : -1;
+    const kind = h >= 0 ? find(/^(transaction )?type$/i) : -1;
     const dates = sample.map(r => String(r[date] || '').match(/^(\d{1,2})[-/.](\d{1,2})[-/.]\d{2,4}/)).filter(Boolean);
     const order = dates.some(x => +x[1] > 12) ? 'dmy' : 'mdy';
     let sign = 'neg';
     if (amount >= 0) { const v = data.map(r => parseAmount(r[amount])).filter(isFinite); sign = v.filter(x => x < 0).length >= v.filter(x => x > 0).length ? 'neg' : 'pos'; }
-    return { names, data, map: { date, desc, amount, credit: amount >= 0 ? -1 : credit, debit, order, sign, cat, bal } };
+    return { names, data, map: { date, desc, amount, credit: amount >= 0 ? -1 : credit, debit, order, sign, cat, bal, kind } };
   }
 
   function csvRows(data, map) {
@@ -2161,7 +2169,10 @@
       const match = matchOf(type, amount, date);
       const dup = !!match;
       const bal = map.bal >= 0 ? parseAmount(r[map.bal]) : NaN;
-      const transfer = TRANSFER_RE.test(raw);
+      // Chase's Type column says outright which rows move money between your own accounts, and which are returns.
+      const kind = map.kind >= 0 ? String(r[map.kind] || '').trim() : '';
+      const transfer = TRANSFER_RE.test(raw) || /^(acct_xfer|payment)$/i.test(kind);
+      const refund = type === 'income' && /^(return|refund)$/i.test(kind);
       let categoryId = type === 'income' ? 'income' : guessCategory(merchant, learned, raw, map.cat >= 0 ? r[map.cat] : '');
       let liabilityId = '';
       if (type === 'expense' && !dup) {
@@ -2170,12 +2181,13 @@
         const bill = state.liabilities.find(l => l.type !== 'debt' && !billsUsed.has(l.id + date.slice(0, 7)) && merchantKey(l.name).length > 2 && mk.includes(merchantKey(l.name)) && !paymentFor(l.id, date.slice(0, 7)));
         if (bill) { billsUsed.add(bill.id + date.slice(0, 7)); liabilityId = bill.id; if (bill.categoryId) categoryId = bill.categoryId; }
       }
-      out.push({ date, type, amount, merchant, categoryId, liabilityId, dup, transfer, bal: isFinite(bal) ? round2(bal) : null, on: !dup && !transfer });
+      out.push({ date, type, amount, merchant, categoryId, liabilityId, dup, transfer, bal: isFinite(bal) ? round2(bal) : null, refund, on: !dup && !transfer });
     });
     return out.sort((a, b) => b.date.localeCompare(a.date));
   }
 
   function importCSV(file, text) {
+    if (/^%PDF/.test(text) || /\.pdf$/i.test(file.name)) { alert('That\'s a PDF statement. Budgt reads CSV files: on your bank\'s website, download account activity as a spreadsheet (CSV) instead. On Chase it\'s the download icon above your transactions.'); return; }
     const rows = parseCSV(text);
     const g = guessColumns(rows);
     if (!g.data.length || g.map.date < 0 || (g.map.amount < 0 && g.map.debit < 0)) { alert('Budgt couldn\'t find dates and amounts in that file. Export a CSV from your bank\'s website and try again.'); return; }
@@ -2190,7 +2202,7 @@
       field('Dates are', '<select id="cm-order"><option value="mdy"' + (map.order === 'mdy' ? ' selected' : '') + '>Month first</option><option value="dmy"' + (map.order === 'dmy' ? ' selected' : '') + '>Day first</option></select>') +
       '</div></details>';
     const rowHtml = (t, i) => '<li class="csv-row' + (t.on ? '' : ' off') + '"><input type="checkbox" data-csv-on="' + i + '"' + (t.on ? ' checked' : '') + ' aria-label="Import ' + esc(t.merchant) + '">' +
-      '<span class="csv-main"><b>' + esc(t.merchant) + '</b><small>' + esc(shortDate(t.date)) + (t.dup ? ' · <span class="warn">Already in Budgt</span>' : t.transfer ? ' · <span class="warn">Transfer?</span>' : '') + '</small></span>' +
+      '<span class="csv-main"><b>' + esc(t.merchant) + '</b><small>' + esc(shortDate(t.date)) + (t.dup ? ' · <span class="warn">Already in Budgt</span>' : t.transfer ? ' · <span class="warn">Transfer?</span>' : t.refund ? ' · Refund' : '') + '</small></span>' +
       '<span class="csv-amt' + (t.type === 'income' ? ' pos' : '') + '">' + (t.type === 'income' ? '+' : '−') + money(t.amount) + '</span>' +
       (t.type === 'income' ? '<span class="csv-cat muted small">Income</span>' : '<select class="csv-cat" data-csv-cat="' + i + '" aria-label="Category for ' + esc(t.merchant) + '">' + catOptions(t.categoryId) + '</select>') + '</li>';
     const count = () => list.filter(t => t.on).length;
@@ -2226,7 +2238,10 @@
       return '<p class="csv-sum"><b>' + on.length + '</b> to import' + (skipped ? ' · ' + skipped + ' skipped' : '') + (on.length ? ' · <span class="neg">−' + money0(sumBy(on, 'expense')) + '</span> <span class="pos">+' + money0(sumBy(on, 'income')) + '</span>' : '') + '</p>';
     };
     const paint = () => {
-      $('#csvBody').innerHTML = prompt() + summary() + mapping() + (list.length ? '<ul class="csv-rows">' + list.map(rowHtml).join('') + '</ul>' : '<p class="muted">No rows match these columns. Pick the right ones above.</p>');
+      const fill = prompt(), b = fill ? null : bankBal();
+      // Without the fill-in prompt, still offer the bank's running balance (Chase checking has one) as Budgt's balance.
+      const bankLine = b && b.off ? '<label class="csv-fill-bank"><input type="checkbox" id="csvBank"' + (b.ours === null ? ' checked' : '') + '><span>Use the bank\'s balance, <b>' + money(b.bank) + '</b> on ' + esc(shortDate(b.date)) + (b.ours !== null ? ' <small class="muted">(Budgt: ' + money(b.ours) + ')</small>' : '') + '</span></label>' : '';
+      $('#csvBody').innerHTML = fill + bankLine + summary() + mapping() + (list.length ? '<ul class="csv-rows">' + list.map(rowHtml).join('') + '</ul>' : '<p class="muted">No rows match these columns. Pick the right ones above.</p>');
       $('#modalSave').textContent = 'Import ' + count();
     };
     openModal('Import ' + (file.name.length > 28 ? 'bank CSV' : file.name), '<p class="muted small csv-hint">Categories are filled in. Change one and that store\'s other rows follow.</p><div id="csvBody"></div>', () => {
